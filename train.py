@@ -24,8 +24,9 @@ import warnings
 import time
 import re
 from pathlib import Path
-FILE = Path(__file__).resolve() #获取绝对路径位置
-ROOT = FILE.parents[0] #获取当前目录位置
+# FILE = Path(__file__).resolve() #获取绝对路径位置
+# ROOT = FILE.parents[0] #获取当前目录位置
+workdir=os.getcwd()
 
 from network import FiducialPoints, DilatedResnetForFlatByFiducialPointsS2
 
@@ -275,15 +276,15 @@ if __name__ == '__main__':
 
 
 
-    parser.add_argument('--data_path_train', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/', type=str,
+    parser.add_argument('--data_path_train', default=workdir / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/', type=str,
                         help='the path of train images.')  # train image path
 
-    parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,
-                        help='the path of validate images.')  # validate image path
+    # parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,
+    #                     help='the path of validate images.')  # validate image path
 
-    parser.add_argument('--data_path_test', default=ROOT / 'test/mytest/', type=str, help='the path of test images.')
+    parser.add_argument('--data_path_test', default=workdir / 'test/mytest/', type=str, help='the path of test images.')
 
-    parser.add_argument('--output-path', default=ROOT / 'flat/', type=str, help='the path is used to  save output --img or result.') 
+    parser.add_argument('--output-path', default=workdir / 'flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
     
