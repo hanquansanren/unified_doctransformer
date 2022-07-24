@@ -142,7 +142,7 @@ def train(args):
     train_time = AverageMeter()
     losses = AverageMeter()
     FlatImg.lambda_loss = 1 # 主约束
-    FlatImg.lambda_loss_segment = 0.01 # 平面图的XY间隔距离
+    FlatImg.lambda_loss_interval = 0.01 # 平面图的XY间隔距离
     FlatImg.lambda_loss_a = 0.1 # 邻域约束
     FlatImg.lambda_loss_b = 0.001
     FlatImg.lambda_loss_c = 0.01
@@ -153,7 +153,7 @@ def train(args):
         for epoch in range(epoch_start, args.n_epoch):
             print('* lambda_loss :'+str(FlatImg.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']))
             print('* lambda_loss :'+str(FlatImg.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']), file=reslut_file)
-            loss_segment_list = 0
+            loss_interval_list = 0
             loss_l1_list = 0
             loss_local_list = 0
             loss_edge_list = 0
@@ -163,17 +163,17 @@ def train(args):
             begin_train = time.time() #从这里正式开始训练当前epoch
             model.train()
             # feed several mini-batches in each loop
-            for i, (images, labels, segment) in enumerate(trainloader):
+            for i, (images, labels, interval) in enumerate(trainloader):
                 images = images.cuda()
                 labels = labels.cuda()
-                segment = segment.cuda()
+                interval = interval.cuda()
 
                 optimizer.zero_grad()
-                outputs, outputs_segment = FlatImg.model(images, is_softmax=False)
+                outputs, outputs_interval = FlatImg.model(images, is_softmax=False)
 
                 loss_l1, loss_local, loss_edge, loss_rectangles = loss_fun(outputs, labels)
-                loss_segment = loss_fun2(outputs_segment, segment)
-                loss = FlatImg.lambda_loss*(loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c) + FlatImg.lambda_loss_segment*loss_segment
+                loss_interval = loss_fun2(outputs_interval, interval)
+                loss = FlatImg.lambda_loss*(loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c) + FlatImg.lambda_loss_interval*loss_interval
 
                 losses.update(loss.item())
                 loss.backward()
@@ -181,7 +181,7 @@ def train(args):
 
                 # 累加相邻的20个mini-batch中各项损失
                 loss_list.append(loss.item())
-                loss_segment_list += loss_segment.item()
+                loss_interval_list += loss_interval.item()
                 loss_l1_list += loss_l1.item()
                 loss_local_list += loss_local.item()
                 # loss_edge_list += loss_edge.item()
@@ -197,7 +197,7 @@ def train(args):
                           '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_segment_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_interval_list / list_len,
                         loss=losses))
                     
                     print('[{0}][{1}/{2}]\t\t'
@@ -206,11 +206,11 @@ def train(args):
                           '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_segment_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_interval_list / list_len,
                         loss=losses), file=reslut_file)
                     # 清零累计的loss
                     del loss_list[:]
-                    loss_segment_list = 0
+                    loss_interval_list = 0
                     loss_l1_list = 0
                     loss_local_list = 0
                     loss_edge_list = 0
