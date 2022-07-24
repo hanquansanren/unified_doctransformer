@@ -19,6 +19,7 @@ args:
 '''
 import os, sys
 import argparse
+from tkinter.messagebox import NO
 from torch.autograd import Variable
 import warnings
 import time
@@ -40,7 +41,7 @@ from loss import Losses
 def train(args):
     ''' setup path '''
     data_path = str(args.data_path_train)+'/'
-    data_path_validate = str(args.data_path_validate)+'/'
+    # data_path_validate = str(args.data_path_validate)+'/'
     data_path_test = str(args.data_path_test)+'/'
 
     ''' log writer '''
@@ -132,10 +133,8 @@ def train(args):
     FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
                             log_file=reslut_file, n_classes=n_classes, optimizer=optimizer, \
                             loss_fn=loss_fun, loss_fn2=loss_fun2, data_loader=PerturbedDatastsForFiducialPoints_pickle_color_v2_v2, \
-                            data_path=data_path, data_path_validate=data_path_validate, data_path_test=data_path_test, data_preproccess=False)          # , valloaderSet=valloaderSet, v_loaderSet=v_loaderSet
+                            data_path=data_path, data_path_validate=None, data_path_test=data_path_test) 
     
-    # FlatImg.loadTestData()
-    # FlatImg.loadValidateAndTestData()
     trainloader = FlatImg.loadTrainData(data_split='train', is_shuffle=True)
     trainloader_len = len(trainloader)
     print("Total number of mini-batch in each epoch: ", trainloader_len)
@@ -276,22 +275,22 @@ if __name__ == '__main__':
 
 
 
-    parser.add_argument('--data_path_train', default=workdir / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/', type=str,
+    parser.add_argument('--data_path_train', default='./dataset/WarpDoc', type=str,
                         help='the path of train images.')  # train image path
 
     # parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,
     #                     help='the path of validate images.')  # validate image path
 
-    parser.add_argument('--data_path_test', default=workdir / 'test/mytest/', type=str, help='the path of test images.')
+    parser.add_argument('--data_path_test', default='./dataset/testset', type=str, help='the path of test images.')
 
-    parser.add_argument('--output-path', default=workdir / 'flat/', type=str, help='the path is used to  save output --img or result.') 
+    parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
     
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=72,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=8,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='train',
@@ -302,6 +301,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
+
+
+
 
     args = parser.parse_args()
 

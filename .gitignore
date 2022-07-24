@@ -6,6 +6,7 @@ checkpoint/
 ICDAR2021/
 simple_test/__pycache__/
 fdr_vis/
+flat/
 gif
 accuracy_log
 *.gz
