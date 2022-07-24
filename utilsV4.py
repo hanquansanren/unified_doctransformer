@@ -234,7 +234,7 @@ class FlatImg(object):
                  log_file, n_classes, optimizer, \
                  model_D=None, optimizer_D=None, \
                  loss_fn=None, loss_fn2=None, data_loader=None, data_loader_hdf5=None, dataPackage_loader = None, \
-                 data_path=None, data_path_validate=None, data_path_test=None, data_preproccess=True):     #, valloaderSet, v_loaderSet
+                 data_path=None, data_path_validate=None, data_path_test=None, is_data_preproccess=True):     #, valloaderSet, v_loaderSet
         self.args = args
         self.path = path
         self.date = date
@@ -256,10 +256,10 @@ class FlatImg(object):
         self.data_path = data_path
         self.data_path_validate = data_path_validate
         self.data_path_test = data_path_test
-        self.data_preproccess = data_preproccess
+        self.is_data_preproccess = is_data_preproccess
 
         postprocess_list = ['tps', 'interpolation']
-        self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, self.data_path_validate, self.data_path_test, self.args.batch_size, self.data_preproccess, postprocess=postprocess_list[0], device=torch.device(self.args.device))
+        self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, self.data_path_validate, self.data_path_test, self.args.batch_size, self.is_data_preproccess, postprocess=postprocess_list[0], device=torch.device(self.args.device))
 
         self.validate_loss = AverageMeter()
         self.validate_loss_regress = AverageMeter()
@@ -291,13 +291,13 @@ class FlatImg(object):
 
     def loadTrainData(self, data_split, is_shuffle=True):
         bfreq,hpf=self.fdr()
-        train_loader = self.data_loader(self.data_path, split=data_split, img_shrink=self.args.img_shrink, preproccess=self.data_preproccess, bfreq=bfreq, hpf=hpf)
-        trainloader = data.DataLoader(train_loader, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 16), drop_last=True, pin_memory=True,
+        train_dataset = self.data_loader(self.data_path, mode=data_split, img_shrink=self.args.img_shrink, bfreq=bfreq, hpf=hpf)
+        trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 16), drop_last=True, pin_memory=True,
                                       shuffle=is_shuffle)
         return trainloader
 
     def loadValidateAndTestData(self, is_shuffle=True, sub_dir='shrink_512/crop/'):
-        v1_loader = self.data_loader(self.data_path_validate, split='validate', img_shrink=self.args.img_shrink, is_return_img_name=True, preproccess=self.data_preproccess)
+        v1_loader = self.data_loader(self.data_path_validate, split='validate', img_shrink=self.args.img_shrink, is_return_img_name=True, preproccess=self.is_data_preproccess)
         valloader1 = data.DataLoader(v1_loader, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 8), 
                                     pin_memory=True, shuffle=is_shuffle)
 

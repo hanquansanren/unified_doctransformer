@@ -62,12 +62,11 @@ Resize the input image into 1024x960 (zooming in or out along the longest side a
 # 	return new_img
 
 class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
-	def __init__(self, root, split='1-1', img_shrink=None, is_return_img_name=False, preproccess=False, bfreq=None,hpf= None):
+	def __init__(self, root, mode='train', img_shrink=None, is_return_img_name=False, bfreq=None,hpf= None):
 		self.root = os.path.expanduser(root)
-		self.split = split
+		self.mode = mode
 		self.img_shrink = img_shrink
 		self.is_return_img_name = is_return_img_name
-		self.preproccess = preproccess
 		# self.mean = np.array([104.00699, 116.66877, 122.67892])
 		self.images = collections.defaultdict(list)
 		self.labels = collections.defaultdict(list)
@@ -77,18 +76,20 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		self.hpf = hpf
 		datasets = ['validate', 'train']
 
-		if self.split == 'test' or self.split == 'eval':
+		if self.mode == 'test' or self.mode == 'eval':
 			img_file_list = os.listdir(os.path.join(self.root))
-			self.images[self.split] = img_file_list
-			# self.images[self.split] = sorted(img_file_list, key=lambda num: (
+			self.images[self.mode] = img_file_list
+			# self.images[self.mode] = sorted(img_file_list, key=lambda num: (
 			# int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
-		elif self.split in datasets:
+		elif self.mode in datasets:
 			img_file_list = []
-			img_file_list_ = os.listdir(os.path.join(self.root, 'color'))
+			img_file_list_ = os.listdir(os.path.join(self.root, 'digital/'))
+			# ['dataset/WarpDoc/digital/curved','dataset/WarpDoc/digital/fold']
 			for id_ in img_file_list_:
-				img_file_list.append(id_.rstrip())
+				file_idex=os.path.join(self.root, 'digital',str(id_))
+				img_file_list.append(file_idex.rstrip())
 
-			self.images[self.split] = sorted(img_file_list, key=lambda num: (
+			self.images[self.mode] = sorted(img_file_list, key=lambda num: (
 			re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(1), int(re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(2))
 			, int(re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(3)), re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(4)))
 		else:
@@ -96,10 +97,10 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		self.checkImg()
 
 	def checkImg(self):
-		if self.split == 'validate':
-			for im_name in self.images[self.split]:
+		if self.mode == 'validate':
+			for im_name in self.images[self.mode]:
 				# if 'SinglePage' in im_name:
-				im_path = pjoin(self.root, self.split, 'color', im_name)
+				im_path = pjoin(self.root, self.mode, 'color', im_name)
 				try:
 					with open(im_path, 'rb') as f:
 						perturbed_data = pickle.load(f)
@@ -110,11 +111,11 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 					# os.remove(im_path)
 
 	def __len__(self):
-		return len(self.images[self.split])
+		return len(self.images[self.mode])
 
 	def __getitem__(self, item):
-		if self.split == 'test':
-			im_name = self.images[self.split][item]
+		if self.mode == 'test':
+			im_name = self.images[self.mode][item]
 			im_path = pjoin(self.root, im_name)
 
 			im = cv2.imread(im_path, flags=cv2.IMREAD_COLOR)
@@ -130,8 +131,8 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			if self.is_return_img_name:
 				return im, im_name
 			return im
-		elif self.split == 'eval':
-			im_name = self.images[self.split][item]
+		elif self.mode == 'eval':
+			im_name = self.images[self.mode][item]
 			im_path = pjoin(self.root, im_name)
 
 			img = cv2.imread(im_path, flags=cv2.IMREAD_COLOR)
@@ -145,7 +146,7 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			# return im, img, im_name
 
 		else:
-			im_name = self.images[self.split][item]
+			im_name = self.images[self.mode][item]
 
 			im_path = pjoin(self.root, 'color', im_name)
 

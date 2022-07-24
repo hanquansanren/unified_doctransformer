@@ -19,13 +19,15 @@ args:
 '''
 import os, sys
 import argparse
+from tkinter.messagebox import NO
 from torch.autograd import Variable
 import warnings
 import time
 import re
 from pathlib import Path
-FILE = Path(__file__).resolve() #获取绝对路径位置
-ROOT = FILE.parents[0] #获取当前目录位置
+# FILE = Path(__file__).resolve() #获取绝对路径位置
+# ROOT = FILE.parents[0] #获取当前目录位置
+workdir=os.getcwd()
 
 from network import FiducialPoints, DilatedResnetForFlatByFiducialPointsS2
 
@@ -39,7 +41,7 @@ from loss import Losses
 def train(args):
     ''' setup path '''
     data_path = str(args.data_path_train)+'/'
-    data_path_validate = str(args.data_path_validate)+'/'
+    # data_path_validate = str(args.data_path_validate)+'/'
     data_path_test = str(args.data_path_test)+'/'
 
     ''' log writer '''
@@ -131,10 +133,8 @@ def train(args):
     FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
                             log_file=reslut_file, n_classes=n_classes, optimizer=optimizer, \
                             loss_fn=loss_fun, loss_fn2=loss_fun2, data_loader=PerturbedDatastsForFiducialPoints_pickle_color_v2_v2, \
-                            data_path=data_path, data_path_validate=data_path_validate, data_path_test=data_path_test, data_preproccess=False)          # , valloaderSet=valloaderSet, v_loaderSet=v_loaderSet
+                            data_path=data_path, data_path_validate=None, data_path_test=data_path_test) 
     
-    # FlatImg.loadTestData()
-    # FlatImg.loadValidateAndTestData()
     trainloader = FlatImg.loadTrainData(data_split='train', is_shuffle=True)
     trainloader_len = len(trainloader)
     print("Total number of mini-batch in each epoch: ", trainloader_len)
@@ -142,7 +142,7 @@ def train(args):
     train_time = AverageMeter()
     losses = AverageMeter()
     FlatImg.lambda_loss = 1 # 主约束
-    FlatImg.lambda_loss_segment = 0.01 # 平面图的XY间隔距离
+    FlatImg.lambda_loss_interval = 0.01 # 平面图的XY间隔距离
     FlatImg.lambda_loss_a = 0.1 # 邻域约束
     FlatImg.lambda_loss_b = 0.001
     FlatImg.lambda_loss_c = 0.01
@@ -153,7 +153,7 @@ def train(args):
         for epoch in range(epoch_start, args.n_epoch):
             print('* lambda_loss :'+str(FlatImg.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']))
             print('* lambda_loss :'+str(FlatImg.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']), file=reslut_file)
-            loss_segment_list = 0
+            loss_interval_list = 0
             loss_l1_list = 0
             loss_local_list = 0
             loss_edge_list = 0
@@ -163,17 +163,17 @@ def train(args):
             begin_train = time.time() #从这里正式开始训练当前epoch
             model.train()
             # feed several mini-batches in each loop
-            for i, (images, labels, segment) in enumerate(trainloader):
+            for i, (images, labels, interval) in enumerate(trainloader):
                 images = images.cuda()
                 labels = labels.cuda()
-                segment = segment.cuda()
+                interval = interval.cuda()
 
                 optimizer.zero_grad()
-                outputs, outputs_segment = FlatImg.model(images, is_softmax=False)
+                outputs, outputs_interval = FlatImg.model(images, is_softmax=False)
 
                 loss_l1, loss_local, loss_edge, loss_rectangles = loss_fun(outputs, labels)
-                loss_segment = loss_fun2(outputs_segment, segment)
-                loss = FlatImg.lambda_loss*(loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c) + FlatImg.lambda_loss_segment*loss_segment
+                loss_interval = loss_fun2(outputs_interval, interval)
+                loss = FlatImg.lambda_loss*(loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c) + FlatImg.lambda_loss_interval*loss_interval
 
                 losses.update(loss.item())
                 loss.backward()
@@ -181,7 +181,7 @@ def train(args):
 
                 # 累加相邻的20个mini-batch中各项损失
                 loss_list.append(loss.item())
-                loss_segment_list += loss_segment.item()
+                loss_interval_list += loss_interval.item()
                 loss_l1_list += loss_l1.item()
                 loss_local_list += loss_local.item()
                 # loss_edge_list += loss_edge.item()
@@ -197,7 +197,7 @@ def train(args):
                           '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_segment_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_interval_list / list_len,
                         loss=losses))
                     
                     print('[{0}][{1}/{2}]\t\t'
@@ -206,11 +206,11 @@ def train(args):
                           '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_segment_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_interval_list / list_len,
                         loss=losses), file=reslut_file)
                     # 清零累计的loss
                     del loss_list[:]
-                    loss_segment_list = 0
+                    loss_interval_list = 0
                     loss_l1_list = 0
                     loss_local_list = 0
                     loss_edge_list = 0
@@ -223,34 +223,11 @@ def train(args):
             print("Total epoches training elapsed time: ", train_time.sum)
             
             # model.eval()
-            # try:
-            #     FlatImg.validateOrTestModelV3(epoch, trian_t, validate_test='v_l4')
-            #     FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t')
-            # except:
-            #     print(' Error: validate or test')
 
-            try:
-                scheduler.step()
-            except:
-                pass
+            scheduler.step()
 
-    # elif args.schema == 'validate':
-    #     epoch = checkpoint['epoch'] if args.resume is not None else 0
-    #     model.eval()
-    #     FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t_all')
-    #     exit()
-    # elif args.schema == 'test':
-    #     epoch = checkpoint['epoch'] if args.resume is not None else 0
-    #     model.eval()
-    #     FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t_all')
-    #     exit()
-    # elif args.schema == 'eval':
-    #     FlatImg.evalData(is_shuffle=True)
 
-    #     epoch = checkpoint['epoch'] if args.resume is not None else 0
-    #     model.eval()
-    #     FlatImg.evalModelGreyC1(epoch, is_scaling=False)
-    #     exit()
+
 
     m, s = divmod(train_time.sum, 60)
     h, m = divmod(m, 60)
@@ -298,22 +275,22 @@ if __name__ == '__main__':
 
 
 
-    parser.add_argument('--data_path_train', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/', type=str,
+    parser.add_argument('--data_path_train', default='./dataset/WarpDoc', type=str,
                         help='the path of train images.')  # train image path
 
-    parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,
-                        help='the path of validate images.')  # validate image path
+    # parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,
+    #                     help='the path of validate images.')  # validate image path
 
-    parser.add_argument('--data_path_test', default=ROOT / 'test/mytest/', type=str, help='the path of test images.')
+    parser.add_argument('--data_path_test', default='./dataset/testset', type=str, help='the path of test images.')
 
-    parser.add_argument('--output-path', default=ROOT / 'flat/', type=str, help='the path is used to  save output --img or result.') 
+    parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
     
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=72,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=8,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='train',
@@ -324,6 +301,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
+
+
+
 
     args = parser.parse_args()
 
