@@ -223,34 +223,11 @@ def train(args):
             print("Total epoches training elapsed time: ", train_time.sum)
             
             # model.eval()
-            # try:
-            #     FlatImg.validateOrTestModelV3(epoch, trian_t, validate_test='v_l4')
-            #     FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t')
-            # except:
-            #     print(' Error: validate or test')
 
-            try:
-                scheduler.step()
-            except:
-                pass
+            scheduler.step()
 
-    # elif args.schema == 'validate':
-    #     epoch = checkpoint['epoch'] if args.resume is not None else 0
-    #     model.eval()
-    #     FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t_all')
-    #     exit()
-    # elif args.schema == 'test':
-    #     epoch = checkpoint['epoch'] if args.resume is not None else 0
-    #     model.eval()
-    #     FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t_all')
-    #     exit()
-    # elif args.schema == 'eval':
-    #     FlatImg.evalData(is_shuffle=True)
 
-    #     epoch = checkpoint['epoch'] if args.resume is not None else 0
-    #     model.eval()
-    #     FlatImg.evalModelGreyC1(epoch, is_scaling=False)
-    #     exit()
+
 
     m, s = divmod(train_time.sum, 60)
     h, m = divmod(m, 60)
