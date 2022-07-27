@@ -10,4 +10,7 @@ flat/
 gif
 accuracy_log
 *.gz
-.code-workspace
+*.code-workspace
+*.jpg
+*.png
+output/

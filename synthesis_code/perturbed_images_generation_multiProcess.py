@@ -7,7 +7,7 @@ intergrate img and label into one file
 '''
 
 
-import argparse
+# import argparse
 import sys, os
 import pickle
 import random
@@ -21,29 +21,46 @@ import glob
 import math
 import time
 
+from PIL import Image
 import threading
 import multiprocessing as mp
 from multiprocessing import Pool
 import re
 import cv2
-# sys.path.append('/lustre/home/gwxie/hope/project/dewarp/datasets/')	# /lustre/home/gwxie/program/project/unwarp/perturbed_imgaes/GAN
 import utils
 
-def getDatasets(dir):
-	return os.listdir(dir)
 
 class perturbed(utils.BasePerturbed):
-	def __init__(self, path, bg_path, save_path, save_suffix):
-
+	def __init__(self, path, bg_img_list, save_path, save_suffix):
 		self.path = path
-		self.bg_path = bg_path
+		self.bg_img_list = bg_img_list
 		self.save_path = save_path
 		self.save_suffix = save_suffix
-	def save_img(self, m, n, fold_curve='fold', repeat_time=4, fiducial_points = 16, relativeShift_position='relativeShift_v2'):
 
+	def check_vis(self, idx, im, lbl, interval):
+		'''
+		im : distorted image   # HWC 
+		lbl : fiducial_points  # 61*61*2 
+		interval : segment     # 2*1
+		'''
+		im=np.uint8(im)
+		im = Image.fromarray(im)
+		im.convert('RGB').save("./data_vis/img_{}.png".format(idx))
+		
+		# fig= plt.figure(j,figsize = (6,6))
+		fig, ax = plt.subplots(figsize = (9.6,10.24),facecolor='white')
+		ax.imshow(im)
+		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+		ax.axis('off')
+		plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+		# plt.tight_layout()
+		plt.savefig('./synthesis_code/test/kk_{}.png'.format(idx))
+		plt.close()
+
+
+	def save_img(self, m, n, fold_curve='fold', repeat_time=4, fiducial_points = 61, relativeShift_position='relativeShift_v2'):
 
 		origin_img = cv2.imread(self.path, flags=cv2.IMREAD_COLOR)
-
 		save_img_shape = [512*2, 512*2]		# 320
 		# reduce_value = np.random.choice([2**4, 2**5, 2**6, 2**7, 2**8], p=[0.01, 0.1, 0.4, 0.39, 0.1])
 		reduce_value = np.random.choice([12, 24, 36, 48, 12*5, 12*6, 12*7, 14*8, 14*9, 15*10, 15*11, 15*12, 15*13], p=[0.02, 0.03, 0.04, 0.05, 0.06, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
@@ -53,7 +70,7 @@ class perturbed(utils.BasePerturbed):
 
 		# enlarge_img_shrink = [1024, 768]
 		# enlarge_img_shrink = [896, 672]		# 420
-		enlarge_img_shrink = [512*4, 480*4]	# 420
+		enlarge_img_shrink = [512*4, 512*4]	# 480
 		# enlarge_img_shrink = [896*2, 768*2]		# 420
 		# enlarge_img_shrink = [896, 768]		# 420
 		# enlarge_img_shrink = [768, 576]		# 420
@@ -98,9 +115,9 @@ class perturbed(utils.BasePerturbed):
 		# plt.show()
 		self.origin_img = cv2.resize(origin_img, (im_ud, im_lr), interpolation=cv2.INTER_CUBIC)
 
-		perturbed_bg_ = getDatasets(self.bg_path)
-		perturbed_bg_img_ = self.bg_path+random.choice(perturbed_bg_)
-		perturbed_bg_img = cv2.imread(perturbed_bg_img_, flags=cv2.IMREAD_COLOR)
+		# perturbed_bg_ = getDatasets(self.bg_path)
+		bg_img = './dataset/background/' + random.choice(self.bg_img_list)
+		perturbed_bg_img = cv2.imread(bg_img, flags=cv2.IMREAD_COLOR)
 
 		mesh_shape = self.origin_img.shape[:2]
 
@@ -720,6 +737,7 @@ class perturbed(utils.BasePerturbed):
 				self.synthesis_perturbed_color[:, :, :3] = synthesis_perturbed_img_filter
 
 		fiducial_points_coordinate = fiducial_points_coordinate[:, :, ::-1]
+		
 		'''draw fiducial points'''
 		stepSize = 0
 		fiducial_points_synthesis_perturbed_img = self.synthesis_perturbed_color[:, :, :3].copy()
@@ -760,7 +778,7 @@ class perturbed(utils.BasePerturbed):
 			'fiducial_points': fiducial_points_coordinate,
 			'segment': np.array((segment_x, segment_y))
 		}
-
+		self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
 		cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
 		with open(self.save_path+'color/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
 			pickle_perturbed_data = pickle.dumps(synthesis_perturbed_data)
@@ -778,27 +796,10 @@ class perturbed(utils.BasePerturbed):
 		print(str(m)+'_'+str(n)+'_'+fold_curve+' '+str(repeat_time)+" Time : %02d:%02d:%02d\n" % (hh, mm, ss))
 
 
-def multiThread(m, n, img_path_, bg_path_, save_path, save_suffix):
-	saveFold = perturbed(img_path_, bg_path_, save_path, save_suffix)
-	saveCurve = perturbed(img_path_, bg_path_, save_path, save_suffix)
-
-	repeat_time = min(max(round(np.random.normal(10, 3)), 5), 16)
-	fold = threading.Thread(target=saveFold.save_img, args=(m, n, 'fold', repeat_time, 'relativeShift_v2'), name='fold')
-	curve = threading.Thread(target=saveCurve.save_img, args=(m, n, 'curve', repeat_time, 'relativeShift_v2'), name='curve')
-
-	fold.start()
-	curve.start()
-	curve.join()
-	fold.join()
-
-def xgw(args):
-	path = args.path
-	bg_path = args.bg_path
-	if args.output_path is None:
-		save_path = '/lustre/home/gwxie/data/unwarp_new/train/general1024/general1024_v1/'
-	else:
-		save_path = args.output_path
-
+def xgw():
+	path = './synthesis_code/rotate/'
+	bg_path = './dataset/background/'
+	save_path = './output/'
 
 	# if not os.path.exists(save_path + 'grey/'):
 	# 	os.makedirs(save_path + 'grey/')
@@ -817,24 +818,22 @@ def xgw(args):
 	if not os.path.exists(save_path + 'outputs/'):
 		os.makedirs(save_path + 'outputs/')
 
-	save_suffix = str.split(args.path, '/')[-2] # 'new'
+	save_suffix = str.split(path, '/')[-2] # 'new'
 
-	all_img_path = getDatasets(path)
-	all_bgImg_path = getDatasets(bg_path)
+	all_img_path = os.listdir(path)
+	all_bgImg_idx = os.listdir(bg_path)
 	global begin_train
 	begin_train = time.time()
 	fiducial_points = 61	# 31
-	process_pool = Pool(28)
+	process_pool = Pool(4)
 	for m, img_path in enumerate(all_img_path):
-		for n in range(args.sys_num):
+		for n in range(1):
 			img_path_ = path+img_path
 			save_suffix = str.split(img_path_, '/')[-2]+str.split(img_path_, '/')[-1][0:4] # 'new'
-			bg_path_ = bg_path+random.choice(all_bgImg_path)+'/'
-
 			for m_n in range(10):
 				try:
-					saveFold = perturbed(img_path_, bg_path_, save_path, save_suffix)
-					saveCurve = perturbed(img_path_, bg_path_, save_path, save_suffix)
+					saveFold = perturbed(img_path_, all_bgImg_idx, save_path, save_suffix)
+					saveCurve = perturbed(img_path_, all_bgImg_idx, save_path, save_suffix)
 
 					repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
 					# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
@@ -854,24 +853,5 @@ def xgw(args):
 	process_pool.join()
 
 if __name__ == '__main__':
-	# print(mp.cpu_count())
-	parser = argparse.ArgumentParser(description='Hyperparams')
-	parser.add_argument('--path',
-						default='./scan/new/digital/curved/', type=str,
-						help='the path of origin img.')
-	parser.add_argument('--bg_path',
-						default='./background/', type=str,
-						help='the path of bg img.')
-	parser.add_argument('--output_path',
-						default='./output/', type=str,
-						help='the path of origin img.')
-	# parser.set_defaults(output_path='test')
-
-	parser.add_argument('--count_from', '-p', default=0, type=int,
-						metavar='N', help='print frequency (default: 10)')  # print frequency
-
-	parser.add_argument('--repeat_T', default=0, type=int)
-	parser.add_argument('--sys_num', default=1, type=int)
-
-	args = parser.parse_args()
-	xgw(args)
+	# # print(mp.cpu_count())
+	xgw()
