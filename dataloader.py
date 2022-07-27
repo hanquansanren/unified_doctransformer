@@ -3,6 +3,7 @@ import pickle
 from os.path import join as pjoin
 import collections
 import json
+from cv2 import rotate
 import torch
 import numpy as np
 from PIL import Image
@@ -63,7 +64,7 @@ Resize the input image into 1024x960 (zooming in or out along the longest side a
 
 class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 	def __init__(self, root, mode='train', img_shrink=None, is_return_img_name=False, bfreq=None,hpf= None):
-		self.root = os.path.expanduser(root)
+		self.root = os.path.expanduser(root) # './dataset/WarpDoc/'
 		self.mode = mode
 		self.img_shrink = img_shrink
 		self.is_return_img_name = is_return_img_name
@@ -76,39 +77,40 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		self.hpf = hpf
 		datasets = ['validate', 'train']
 
+		self.scan_root=os.path.join(self.root, 'digital')
+		self.wild_root=os.path.join(self.root, 'image')
+		# self.rotate_root=os.path.join(self.root, 'digital', 'rotate/')
+		# self.perspective_root=os.path.join(self.root, 'digital', 'perspective/')
+		# self.random_root=os.path.join(self.root, 'digital', 'random/')
+		# self.curved_root=os.path.join(self.root, 'digital', 'curved/')
+		# self.fold_root=os.path.join(self.root, 'digital', 'fold/')
+
 		if self.mode == 'test' or self.mode == 'eval':
-			img_file_list = os.listdir(os.path.join(self.root))
+			img_file_list = os.listdir(pjoin(self.root))
 			self.images[self.mode] = img_file_list
 			# self.images[self.mode] = sorted(img_file_list, key=lambda num: (
 			# int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
 		elif self.mode in datasets:
-			img_file_list = []
-			img_file_list_ = os.listdir(os.path.join(self.root, 'digital/'))
-			# ['dataset/WarpDoc/digital/curved','dataset/WarpDoc/digital/fold']
-			for id_ in img_file_list_:
-				file_idex=os.path.join(self.root, 'digital',str(id_))
-				img_file_list.append(file_idex.rstrip())
+			img_file_list = []		
+			for type in os.listdir(self.scan_root):
+				for file_idex in os.listdir(pjoin(self.scan_root, type)):
+					img_file_list.append(pjoin(type, file_idex))
 
-			self.images[self.mode] = sorted(img_file_list, key=lambda num: (
-			re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(1), int(re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(2))
-			, int(re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(3)), re.match(r'(\w+\d*)_(\d+)_(\d+)_(\w+)', num, re.IGNORECASE).group(4)))
+			self.images[self.mode] = img_file_list
 		else:
 			raise Exception('load data error')
-		self.checkImg()
+		# self.checkimg()
 
-	def checkImg(self):
-		if self.mode == 'validate':
+	def checkimg(self):
+		if self.mode == 'train' or self.mode == 'validate':
 			for im_name in self.images[self.mode]:
-				# if 'SinglePage' in im_name:
-				im_path = pjoin(self.root, self.mode, 'color', im_name)
+				im_path = pjoin(self.scan_root, im_name)
 				try:
-					with open(im_path, 'rb') as f:
-						perturbed_data = pickle.load(f)
-
-					im_shape = perturbed_data.shape
+					img = Image.open(im_path)
 				except:
 					print("bug image:", im_name)
 					# os.remove(im_path)
+		print('all images is well prepared')
 
 	def __len__(self):
 		return len(self.images[self.mode])
