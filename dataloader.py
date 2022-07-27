@@ -73,8 +73,8 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		self.labels = collections.defaultdict(list)
 		self.row_gap = 1
 		self.col_gap = 1
-		self.bfreq = bfreq
-		self.hpf = hpf
+		# self.bfreq = bfreq
+		# self.hpf = hpf
 		datasets = ['validate', 'train']
 
 		self.scan_root=os.path.join(self.root, 'digital')
@@ -195,15 +195,16 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		except:
 			pass
 	
-		freq = np.fft.fft2(im,axes=(0,1))
-		freq = np.fft.fftshift(freq)
+		# freq = np.fft.fft2(im,axes=(0,1))
+		# freq = np.fft.fftshift(freq)
 
-		rhpf = bfreq + hpf * freq
-		img_rhpf = np.abs(np.fft.ifft2(rhpf,axes=(0,1)))
-		img_rhpf = np.clip(img_rhpf,0,255) #会产生一些过大值需要截断
-		img_rhpf = img_rhpf.astype('uint8')
+		# rhpf = bfreq + hpf * freq
+		# img_rhpf = np.abs(np.fft.ifft2(rhpf,axes=(0,1)))
+		# img_rhpf = np.clip(img_rhpf,0,255) #会产生一些过大值需要截断
+		# img_rhpf = img_rhpf.astype('uint8')
 
-		return img_rhpf
+		# return img_rhpf
+		return im
 
 	def resize_im0(self, im):
 		try:

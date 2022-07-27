@@ -290,8 +290,8 @@ class FlatImg(object):
         return lpf*bfreq, 1-lpf
 
     def loadTrainData(self, data_split, is_shuffle=True):
-        bfreq,hpf=self.fdr()
-        train_dataset = self.data_loader(self.data_path, mode=data_split, img_shrink=self.args.img_shrink, bfreq=bfreq, hpf=hpf)
+        # bfreq,hpf=self.fdr()
+        train_dataset = self.data_loader(self.data_path, mode=data_split, img_shrink=self.args.img_shrink)
         trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 16), drop_last=True, pin_memory=True,
                                       shuffle=is_shuffle)
         return trainloader
