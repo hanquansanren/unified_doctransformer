@@ -822,6 +822,8 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 				saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
 				repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
 				# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
+				
+				##################这里需要传参！！！！！！！20220729########################
 				process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2'))
 			elif deform_type=='curve':
 				saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
