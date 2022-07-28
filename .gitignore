@@ -14,3 +14,4 @@ accuracy_log
 *.jpg
 *.png
 output/
+backup/

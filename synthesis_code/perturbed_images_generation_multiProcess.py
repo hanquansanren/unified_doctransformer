@@ -1,12 +1,3 @@
-'''
-GuoWang xie
-set up :2020-1-9
-intergrate img and label into one file
-
--- fiducial1024_v1
-'''
-
-
 # import argparse
 import sys, os
 import pickle
@@ -25,12 +16,14 @@ from PIL import Image
 import threading
 import multiprocessing as mp
 from multiprocessing import Pool
+# 将上述代码的multiprocess改成billiard
+from billiard import Pool
 import re
 import cv2
-import utils
+import synthesis_code.utils as sutils
 
 
-class perturbed(utils.BasePerturbed):
+class perturbed(sutils.BasePerturbed):
 	def __init__(self, path, bg_img_list, save_path, save_suffix):
 		self.path = path
 		self.bg_img_list = bg_img_list
@@ -48,7 +41,7 @@ class perturbed(utils.BasePerturbed):
 		im.convert('RGB').save("./data_vis/img_{}.png".format(idx))
 		
 		# fig= plt.figure(j,figsize = (6,6))
-		fig, ax = plt.subplots(figsize = (9.6,10.24),facecolor='white')
+		fig, ax = plt.subplots(figsize = (10.24,10.24),facecolor='white')
 		ax.imshow(im)
 		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
 		ax.axis('off')
@@ -58,7 +51,7 @@ class perturbed(utils.BasePerturbed):
 		plt.close()
 
 
-	def save_img(self, m, n, fold_curve='fold', repeat_time=4, fiducial_points = 61, relativeShift_position='relativeShift_v2'):
+	def save_img(self, fold_curve='fold', repeat_time=4, fiducial_points = 61, relativeShift_position='relativeShift_v2'):
 
 		origin_img = cv2.imread(self.path, flags=cv2.IMREAD_COLOR)
 		save_img_shape = [512*2, 512*2]		# 320
@@ -472,7 +465,7 @@ class perturbed(utils.BasePerturbed):
 			raise Exception('clip error')
 
 
-		perfix_ = self.save_suffix+'_'+str(m)+'_'+str(n)
+		perfix_ = self.save_suffix
 		is_shrink = False
 		if perturbed_x_max - perturbed_x_min > save_img_shape[0] or perturbed_y_max - perturbed_y_min > save_img_shape[1]:
 			is_shrink = True
@@ -735,54 +728,66 @@ class perturbed(utils.BasePerturbed):
 				self.synthesis_perturbed_color[:, :, :3][self.synthesis_perturbed_color[:, :, 5] == 1] = synthesis_perturbed_img_filter[self.synthesis_perturbed_color[:, :, 5] == 1]
 			else:
 				self.synthesis_perturbed_color[:, :, :3] = synthesis_perturbed_img_filter
-
+		else:
+			None
 		fiducial_points_coordinate = fiducial_points_coordinate[:, :, ::-1]
 		
-		'''draw fiducial points'''
-		stepSize = 0
-		fiducial_points_synthesis_perturbed_img = self.synthesis_perturbed_color[:, :, :3].copy()
-		for l in fiducial_points_coordinate.astype(np.int64).reshape(-1, 2):
-			cv2.circle(fiducial_points_synthesis_perturbed_img, (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 2, (0, 0, 255), -1)
-		cv2.imwrite(self.save_path + 'fiducial_points/' + perfix_ + '_' + fold_curve + '.png', fiducial_points_synthesis_perturbed_img)
+		# '''draw fiducial points'''
+		# stepSize = 0
+		# fiducial_points_synthesis_perturbed_img = self.synthesis_perturbed_color[:, :, :3].copy()
+		# for l in fiducial_points_coordinate.astype(np.int64).reshape(-1, 2):
+		# 	cv2.circle(fiducial_points_synthesis_perturbed_img, (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 2, (0, 0, 255), -1)
+		# cv2.imwrite(self.save_path + 'fiducial_points/' + perfix_ + '_' + fold_curve + '.png', fiducial_points_synthesis_perturbed_img)
 
-		cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
+		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
 
-		'''forward-begin'''
-		self.forward_mapping = np.full((save_img_shape[0], save_img_shape[1], 2), 0, dtype=np.float32)
-		forward_mapping = np.full((save_img_shape[0], save_img_shape[1], 2), 0, dtype=np.float32)
-		forward_position = (self.synthesis_perturbed_color[:, :, 3:5] + pixel_position)[self.synthesis_perturbed_color[:, :, 5] != 0, :]
-		flat_position = np.argwhere(np.zeros(save_img_shape, dtype=np.uint32) == 0)
-		vtx, wts = self.interp_weights(forward_position, flat_position)
-		wts_sum = np.abs(wts).sum(-1)
-		wts = wts[wts_sum <= 1, :]
-		vtx = vtx[wts_sum <= 1, :]
-		flat_position_forward = flat_position.reshape(save_img_shape[0], save_img_shape[1], 2)[self.synthesis_perturbed_color[:, :, 5] != 0, :]
-		forward_mapping.reshape(save_img_shape[0] * save_img_shape[1], 2)[wts_sum <= 1, :] = self.interpolate(flat_position_forward, vtx, wts)
-		forward_mapping = forward_mapping.reshape(save_img_shape[0], save_img_shape[1], 2)
+		# '''forward-begin'''
+		# self.forward_mapping = np.full((save_img_shape[0], save_img_shape[1], 2), 0, dtype=np.float32)
+		# forward_mapping = np.full((save_img_shape[0], save_img_shape[1], 2), 0, dtype=np.float32)
+		# forward_position = (self.synthesis_perturbed_color[:, :, 3:5] + pixel_position)[self.synthesis_perturbed_color[:, :, 5] != 0, :]
+		# flat_position = np.argwhere(np.zeros(save_img_shape, dtype=np.uint32) == 0)
+		# vtx, wts = self.interp_weights(forward_position, flat_position)
+		# wts_sum = np.abs(wts).sum(-1)
+		# wts = wts[wts_sum <= 1, :]
+		# vtx = vtx[wts_sum <= 1, :]
+		# flat_position_forward = flat_position.reshape(save_img_shape[0], save_img_shape[1], 2)[self.synthesis_perturbed_color[:, :, 5] != 0, :]
+		# forward_mapping.reshape(save_img_shape[0] * save_img_shape[1], 2)[wts_sum <= 1, :] = self.interpolate(flat_position_forward, vtx, wts)
+		# forward_mapping = forward_mapping.reshape(save_img_shape[0], save_img_shape[1], 2)
 
-		mapping_x_min_, mapping_y_min_, mapping_x_max_, mapping_y_max_ = self.adjust_position_v2(0, 0, im_lr, im_ud, self.new_shape)
-		shreshold_zoom_out = 2
-		mapping_x_min = mapping_x_min_ + shreshold_zoom_out
-		mapping_y_min = mapping_y_min_ + shreshold_zoom_out
-		mapping_x_max = mapping_x_max_ - shreshold_zoom_out
-		mapping_y_max = mapping_y_max_ - shreshold_zoom_out
-		self.forward_mapping[mapping_x_min:mapping_x_max, mapping_y_min:mapping_y_max] = forward_mapping[mapping_x_min:mapping_x_max, mapping_y_min:mapping_y_max]
-		self.scan_img = np.full((save_img_shape[0], save_img_shape[1], 3), 0, dtype=np.float32)
-		self.scan_img[mapping_x_min_:mapping_x_max_, mapping_y_min_:mapping_y_max_] = self.origin_img
-		self.origin_img = self.scan_img
-		# flat_img = np.full((save_img_shape[0], save_img_shape[1], 3), 0, dtype=np.float32)
-		# cv2.remap(self.synthesis_perturbed_color[:, :, :3], self.forward_mapping[:, :, 1], self.forward_mapping[:, :, 0], cv2.INTER_LINEAR, flat_img)
-		# cv2.imwrite(self.save_path + 'outputs/1.jpg', flat_img)
-		'''forward-end'''
-		synthesis_perturbed_data = {
-			'fiducial_points': fiducial_points_coordinate,
-			'segment': np.array((segment_x, segment_y))
-		}
+		# mapping_x_min_, mapping_y_min_, mapping_x_max_, mapping_y_max_ = self.adjust_position_v2(0, 0, im_lr, im_ud, self.new_shape)
+		# shreshold_zoom_out = 2
+		# mapping_x_min = mapping_x_min_ + shreshold_zoom_out
+		# mapping_y_min = mapping_y_min_ + shreshold_zoom_out
+		# mapping_x_max = mapping_x_max_ - shreshold_zoom_out
+		# mapping_y_max = mapping_y_max_ - shreshold_zoom_out
+		# self.forward_mapping[mapping_x_min:mapping_x_max, mapping_y_min:mapping_y_max] = forward_mapping[mapping_x_min:mapping_x_max, mapping_y_min:mapping_y_max]
+		# self.scan_img = np.full((save_img_shape[0], save_img_shape[1], 3), 0, dtype=np.float32)
+		# self.scan_img[mapping_x_min_:mapping_x_max_, mapping_y_min_:mapping_y_max_] = self.origin_img
+		# self.origin_img = self.scan_img
+		# # flat_img = np.full((save_img_shape[0], save_img_shape[1], 3), 0, dtype=np.float32)
+		# # cv2.remap(self.synthesis_perturbed_color[:, :, :3], self.forward_mapping[:, :, 1], self.forward_mapping[:, :, 0], cv2.INTER_LINEAR, flat_img)
+		# # cv2.imwrite(self.save_path + 'outputs/1.jpg', flat_img)
+		
+		
+		# '''forward-end'''
+		# synthesis_perturbed_data = {
+		# 	'image':self.synthesis_perturbed_color[:, :, :3],
+		# 	'fiducial_points': fiducial_points_coordinate,
+		# 	'segment': np.array((segment_x, segment_y))
+		# }
+
+		'''
+		###################################################
+		test here
+		###################################################
+		'''
 		self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
-		cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
-		with open(self.save_path+'color/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
-			pickle_perturbed_data = pickle.dumps(synthesis_perturbed_data)
-			f.write(pickle_perturbed_data)
+		
+		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
+		# with open(self.save_path+'color/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
+		# 	pickle_perturbed_data = pickle.dumps(synthesis_perturbed_data)
+		# 	f.write(pickle_perturbed_data)
+
 		# with open(self.save_path+'grey/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
 		# 	pickle_perturbed_data = pickle.dumps(self.synthesis_perturbed_grey)
 		# 	f.write(pickle_perturbed_data)
@@ -793,65 +798,54 @@ class perturbed(utils.BasePerturbed):
 		trian_t = time.time() - begin_train
 		mm, ss = divmod(trian_t, 60)
 		hh, mm = divmod(mm, 60)
-		print(str(m)+'_'+str(n)+'_'+fold_curve+' '+str(repeat_time)+" Time : %02d:%02d:%02d\n" % (hh, mm, ss))
+		print(fold_curve+'_'+str(repeat_time)+" Time : %02d:%02d:%02d\n" % (hh, mm, ss))
+		d1=self.synthesis_perturbed_color[:, :, :3]
+		lbl1=fiducial_points_coordinate
+		itv1=np.array((segment_x, segment_y))
 
+		return d1,lbl1,itv1
 
-def xgw():
-	path = './synthesis_code/rotate/'
-	bg_path = './dataset/background/'
-	save_path = './output/'
-
-	# if not os.path.exists(save_path + 'grey/'):
-	# 	os.makedirs(save_path + 'grey/')
-	if not os.path.exists(save_path + 'color/'):
-		os.makedirs(save_path + 'color/')
-
-	if not os.path.exists(save_path + 'fiducial_points/'):
-		os.makedirs(save_path + 'fiducial_points/')
-
-	if not os.path.exists(save_path + 'png/'):
-		os.makedirs(save_path + 'png/')
-
-	if not os.path.exists(save_path + 'scan/'):
-		os.makedirs(save_path + 'scan/')
-
-	if not os.path.exists(save_path + 'outputs/'):
-		os.makedirs(save_path + 'outputs/')
+def get_syn_image(path, bg_path, save_path, deform_type):
 
 	save_suffix = str.split(path, '/')[-2] # 'new'
 
-	all_img_path = os.listdir(path)
 	all_bgImg_idx = os.listdir(bg_path)
 	global begin_train
 	begin_train = time.time()
 	fiducial_points = 61	# 31
 	process_pool = Pool(4)
-	for m, img_path in enumerate(all_img_path):
-		for n in range(1):
-			img_path_ = path+img_path
-			save_suffix = str.split(img_path_, '/')[-2]+str.split(img_path_, '/')[-1][0:4] # 'new'
-			for m_n in range(10):
-				try:
-					saveFold = perturbed(img_path_, all_bgImg_idx, save_path, save_suffix)
-					saveCurve = perturbed(img_path_, all_bgImg_idx, save_path, save_suffix)
 
-					repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
-					# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
-					process_pool.apply_async(func=saveFold.save_img, args=(m, n, 'fold', repeat_time, fiducial_points, 'relativeShift_v2'))
-
-					repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) #随机弯曲次数
-					# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
-					process_pool.apply_async(func=saveCurve.save_img, args=(m, n, 'curve', repeat_time, fiducial_points, 'relativeShift_v2'))
-
-				except BaseException as err:
-					print(err)
-					continue
-				break
-			# print('end')
+	save_suffix = str.split(path, '/')[-2]+str.split(path, '/')[-1][0:4] # 'new'
+	for m_n in range(10):
+		try:
+			if deform_type=='fold':
+				saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
+				repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
+				# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
+				process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2'))
+			elif deform_type=='curve':
+				saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
+				repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) #随机弯曲次数
+				# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
+				process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2'))		
+			else:
+				print('error type')
+		except BaseException as err:
+			print('sssssssssssss')
+			print(err)
+			continue
+		break
+	# print('end')
 
 	process_pool.close()
 	process_pool.join()
 
-if __name__ == '__main__':
-	# # print(mp.cpu_count())
-	xgw()
+# if __name__ == '__main__':
+# 	# # print(mp.cpu_count())
+# 	im_path = './synthesis_code/rotate/0000.jpg'
+# 	bg_path = './dataset/background/'
+# 	save_path = './output/'
+# 	deform_type_list=['fold','curve']
+# 	deform_type=np.random.choice(deform_type_list,p=[0.5,0.5])
+# 	print(deform_type)
+# 	get_syn_image(path=im_path, bg_path=bg_path,save_path=None, deform_type=deform_type)

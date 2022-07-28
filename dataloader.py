@@ -2,15 +2,19 @@ import os
 import pickle
 from os.path import join as pjoin
 import collections
+import matplotlib.pyplot as plt
 import json
+import random
 from cv2 import rotate
 import torch
 import numpy as np
 from PIL import Image
 import re
 import cv2
-
+from synthesis_code.perturbed_images_generation_multiProcess import get_syn_image
 from torch.utils import data
+import time
+
 
 
 # def get_data_path(name):
@@ -76,6 +80,7 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		# self.bfreq = bfreq
 		# self.hpf = hpf
 		datasets = ['validate', 'train']
+		self.deform_type_list=['fold', 'curve']
 
 		self.scan_root=os.path.join(self.root, 'digital')
 		self.wild_root=os.path.join(self.root, 'image')
@@ -84,6 +89,9 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		# self.random_root=os.path.join(self.root, 'digital', 'random/')
 		# self.curved_root=os.path.join(self.root, 'digital', 'curved/')
 		# self.fold_root=os.path.join(self.root, 'digital', 'fold/')
+		self.bg_path = './dataset/background/'
+		self.save_path = './output/'
+
 
 		if self.mode == 'test' or self.mode == 'eval':
 			img_file_list = os.listdir(pjoin(self.root))
@@ -147,40 +155,39 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			return im, img
 			# return im, img, im_name
 
-		else:
+		else: # train
+			# img = Image.open(im_path)	
 			im_name = self.images[self.mode][item]
+			im_path = pjoin(self.scan_root, im_name)
+			deform_type1=np.random.choice(self.deform_type_list,p=[0.5,0.5])
+			print(deform_type1)
+			# deform_type2=np.random.choice(self.deform_type_list,p=[0.5,0.5])
+			# print(deform_type2)
+			# im = np.uint8(im)
+			d1,lbl1,itv1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
+			# d2,lbl2,itv2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
+			print('finish')
+			d1 = Image.fromarray(d1)
+			d1.convert('RGB').save("./data_vis/img111.png")
+			# d2 = Image.fromarray(d2)
+			# d2.convert('RGB').save("./data_vis/img222_{}.png".format(00))
 
-			im_path = pjoin(self.root, 'color', im_name)
+			# im = self.resize_im1(im, self.bfreq, self.hpf)
+			d1=self.resize_im0(d1)
+			# d1 = d1.transpose(2, 0, 1)
 
-			with open(im_path, 'rb') as f:
-				# perturbed_data = pickle.load(f)
-				try:
-					perturbed_data = pickle.load(f)
-					flag=1
-				except:
-					print(im_name)
-					pass
+			# lbl1 = self.resize_lbl(lbl1)
+			# lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
+			# lbl1 = lbl1.transpose(2, 0, 1)
 
-			im = np.uint8(perturbed_data.get('image'))
-			lbl = perturbed_data.get('fiducial_points')
-			segment = perturbed_data.get('segment')
+			d1 = torch.from_numpy(d1).float()
+			lbl1 = torch.from_numpy(lbl1).float()
+			itv1 = torch.from_numpy(itv1).float()
 
-			im = self.resize_im1(im, self.bfreq, self.hpf)
-			# im = self.resize_im0(im)
-			im = im.transpose(2, 0, 1)
+			# if self.is_return_img_name:
+			# 	return im, lbl, interval, im_name
 
-			lbl = self.resize_lbl(lbl)
-			lbl, segment = self.fiducal_points_lbl(lbl, segment)
-			lbl = lbl.transpose(2, 0, 1)
-
-			im = torch.from_numpy(im).float()
-			lbl = torch.from_numpy(lbl).float()
-			segment = torch.from_numpy(segment).float()
-
-			if self.is_return_img_name:
-				return im, lbl, segment, im_name
-
-			return im, lbl, segment
+			return d1, lbl1, itv1
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
@@ -227,6 +234,38 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		fiducial_points = fiducial_points[::fiducial_point_gaps[self.row_gap], ::fiducial_point_gaps[self.col_gap], :]
 		segment = segment * [fiducial_point_gaps[self.col_gap], fiducial_point_gaps[self.row_gap]]
 		return fiducial_points, segment
+
+
+	# def get_syn_image(self, path, bg_path, save_path, deform_type):
+
+	# 	save_suffix = str.split(path, '/')[-2] # 'new'
+
+	# 	all_bgImg_idx = os.listdir(bg_path)
+	# 	global begin_train
+	# 	begin_train = time.time()
+	# 	fiducial_points = 61	# 31
+	# 	process_pool = Pool(4)
+
+	# 	save_suffix = str.split(path, '/')[-2]+str.split(path, '/')[-1][0:4] # 'new'
+	# 	try:
+	# 		if deform_type=='fold':
+	# 			saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
+	# 			repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
+	# 			# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
+	# 			process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2'))
+	# 		elif deform_type=='curve':
+	# 			saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
+	# 			repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) #随机弯曲次数
+	# 			# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
+	# 			process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2'))		
+	# 		else:
+	# 			print('error type')
+	# 	except BaseException as err:
+	# 		print(err)
+	# 	# print('end')
+
+	# 	process_pool.close()
+	# 	process_pool.join()
 	
 
 

@@ -290,7 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=8,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='train',
