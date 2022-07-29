@@ -16,56 +16,6 @@ from torch.utils import data
 import time
 
 
-
-# def get_data_path(name):
-# 	"""Extract path to data from config file.
-
-# 	Args:
-# 		name (str): The name of the dataset.
-
-# 	Returns:
-# 		(str): The path to the root directory containing the dataset.
-# 	"""
-# 	with open('../xgw/segmentation/config.json') as f:
-# 		js = f.read()
-# 	# js = open('config.json').read()
-# 	data = json.loads(js)
-# 	return os.path.expanduser(data[name]['data_path'])
-
-# def getDatasets(dir):
-# 	return os.listdir(dir)
-'''
-Resize the input image into 1024x960 (zooming in or out along the longest side and keeping the aspect ration, then filling zero for padding. )
-'''
-# def resize_image(origin_img, long_edge=1024, short_edge=960):
-# 	# long_edge, short_edge = 2048, 1920
-# 	# long_edge, short_edge = 1024, 960
-# 	# long_edge, short_edge = 512, 480
-
-# 	im_lr = origin_img.shape[0]
-# 	im_ud = origin_img.shape[1]
-# 	new_img = np.zeros([long_edge, short_edge, 3], dtype=np.uint8)
-# 	new_shape = new_img.shape[:2]
-# 	if im_lr > im_ud:
-# 		img_shrink, base_img_shrink = long_edge, long_edge
-# 		im_ud = int(im_ud / im_lr * base_img_shrink)
-# 		im_ud += 32-im_ud%32
-# 		im_ud = min(im_ud, short_edge)
-# 		im_lr = img_shrink
-# 		origin_img = cv2.resize(origin_img, (im_ud, im_lr), interpolation=cv2.INTER_CUBIC)
-# 		new_img[:, (new_shape[1]-im_ud)//2:new_shape[1]-(new_shape[1]-im_ud)//2] = origin_img
-# 		# mask = np.full(new_shape, 255, dtype='uint8')
-# 		# mask[:, (new_shape[1] - im_ud) // 2:new_shape[1] - (new_shape[1] - im_ud) // 2] = 0
-# 	else:
-# 		img_shrink, base_img_shrink = short_edge, short_edge
-# 		im_lr = int(im_lr / im_ud * base_img_shrink)
-# 		im_lr += 32-im_lr%32
-# 		im_lr = min(im_lr, long_edge)
-# 		im_ud = img_shrink
-# 		origin_img = cv2.resize(origin_img, (im_ud, im_lr), interpolation=cv2.INTER_CUBIC)
-# 		new_img[(new_shape[0] - im_lr) // 2:new_shape[0] - (new_shape[0] - im_lr) // 2, :] = origin_img
-# 	return new_img
-
 class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 	def __init__(self, root, mode='train', img_shrink=None, is_return_img_name=False, bfreq=None,hpf= None):
 		self.root = os.path.expanduser(root) # './dataset/WarpDoc/'
@@ -157,43 +107,109 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 
 		else: # train
 			# img = Image.open(im_path)	
-			im_name = self.images[self.mode][item]
-			im_path = pjoin(self.scan_root, im_name)
+			'''load path'''			
+			im_name = self.images[self.mode][item] # 'rotate/0151.jpg'
+			im_path = pjoin(self.scan_root, im_name) # './dataset/WarpDoc/digital/rotate/0151.jpg'
+			
+			'''choose two deform type randomly'''
 			deform_type1=np.random.choice(self.deform_type_list,p=[0.5,0.5])
 			print(deform_type1)
-			# deform_type2=np.random.choice(self.deform_type_list,p=[0.5,0.5])
-			# print(deform_type2)
-			# im = np.uint8(im)
+			deform_type2=np.random.choice(self.deform_type_list,p=[0.5,0.5])
+			print(deform_type2)
+
+			'''get two deformation document images'''
 			d1,lbl1,itv1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
-			# d2,lbl2,itv2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
-			print('finish')
-			d1 = Image.fromarray(d1)
-			d1.convert('RGB').save("./data_vis/img111.png")
-			# d2 = Image.fromarray(d2)
-			# d2.convert('RGB').save("./data_vis/img222_{}.png".format(00))
+			d2,lbl2,itv2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
+			d1 = np.uint8(d1)
+			d2 = np.uint8(d2)
+			print('finished two deformation document images')
+
+			'''visualization point'''
+			# self.check_item_vis(d1, lbl1, 1)
+			# self.check_item_vis(d2, lbl2, 2)
+
 
 			# im = self.resize_im1(im, self.bfreq, self.hpf)
+			'''resize and tansform to tensor'''
 			d1=self.resize_im0(d1)
-			# d1 = d1.transpose(2, 0, 1)
+			d2=self.resize_im0(d2)
 
-			# lbl1 = self.resize_lbl(lbl1)
-			# lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
-			# lbl1 = lbl1.transpose(2, 0, 1)
+			lbl1 = self.resize_lbl(lbl1)
+			lbl2 = self.resize_lbl(lbl2)
+			lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
+			lbl2, itv2 = self.fiducal_points_lbl(lbl2, itv2)
 
+
+			# self.check_item_vis(d1, lbl1, 1)
+			# self.check_item_vis(d2, lbl2, 2)
+			
+			d1 = d1.transpose(2, 0, 1)
+			d2 = d2.transpose(2, 0, 1)
+			lbl1 = lbl1.transpose(2, 0, 1)
+			lbl2 = lbl2.transpose(2, 0, 1)
 			d1 = torch.from_numpy(d1).float()
 			lbl1 = torch.from_numpy(lbl1).float()
 			itv1 = torch.from_numpy(itv1).float()
-
-			# if self.is_return_img_name:
-			# 	return im, lbl, interval, im_name
-
-			return d1, lbl1, itv1
+			d2 = torch.from_numpy(d2).float()
+			lbl2 = torch.from_numpy(lbl2).float()
+			itv2 = torch.from_numpy(itv2).float()
+			print('finished dataset preparation')
+			return d1, lbl1, itv2, d2, lbl2, itv2
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
 		im = torch.from_numpy(im).float()
 
 		return im
+
+	def resize_im0(self, im):
+		try:
+			im = cv2.resize(im, (992, 992), interpolation=cv2.INTER_LINEAR)
+			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
+		except:
+			pass
+
+		return im
+
+
+	def resize_lbl(self, lbl):
+		lbl = lbl/[1024, 1024]*[992, 992]
+		# lbl = lbl/[960, 1024]*[496, 496]
+		return lbl
+
+	def fiducal_points_lbl(self, fiducial_points, interval):
+
+		fiducial_point_gaps = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]  # POINTS NUM: 61, 31, 21, 16, 13, 11, 7, 6, 5, 4, 3, 2
+		fiducial_points = fiducial_points[::fiducial_point_gaps[self.row_gap], ::fiducial_point_gaps[self.col_gap], :]
+		interval = interval * [fiducial_point_gaps[self.col_gap], fiducial_point_gaps[self.row_gap]]
+		return fiducial_points, interval
+
+
+
+
+
+
+
+
+
+
+	def check_item_vis(self, im, lbl, idx):
+		'''
+		im : distorted image   # HWC 
+		lbl : fiducial_points  # 61*61*2 
+		'''
+		# im=np.uint8(im)
+		im = Image.fromarray(im)
+		im.convert('RGB').save("./data_vis/img_vis{}.png".format(idx))
+		
+		fig, ax = plt.subplots(figsize = (10.24,10.24),facecolor='white')
+		ax.imshow(im)
+		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+		ax.axis('off')
+		plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+		# plt.tight_layout()
+		plt.savefig('./data_vis/point_vis{}.png'.format(idx))
+		plt.close()
 
 	def resize_im1(self, im, bfreq, hpf):
 		try:
@@ -212,60 +228,6 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 
 		# return img_rhpf
 		return im
-
-	def resize_im0(self, im):
-		try:
-			im = cv2.resize(im, (992, 992), interpolation=cv2.INTER_LINEAR)
-			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
-		except:
-			pass
-
-		return im
-
-
-	def resize_lbl(self, lbl):
-		lbl = lbl/[960, 1024]*[992, 992]
-		# lbl = lbl/[960, 1024]*[496, 496]
-		return lbl
-
-	def fiducal_points_lbl(self, fiducial_points, segment):
-
-		fiducial_point_gaps = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]  # POINTS NUM: 61, 31, 21, 16, 13, 11, 7, 6, 5, 4, 3, 2
-		fiducial_points = fiducial_points[::fiducial_point_gaps[self.row_gap], ::fiducial_point_gaps[self.col_gap], :]
-		segment = segment * [fiducial_point_gaps[self.col_gap], fiducial_point_gaps[self.row_gap]]
-		return fiducial_points, segment
-
-
-	# def get_syn_image(self, path, bg_path, save_path, deform_type):
-
-	# 	save_suffix = str.split(path, '/')[-2] # 'new'
-
-	# 	all_bgImg_idx = os.listdir(bg_path)
-	# 	global begin_train
-	# 	begin_train = time.time()
-	# 	fiducial_points = 61	# 31
-	# 	process_pool = Pool(4)
-
-	# 	save_suffix = str.split(path, '/')[-2]+str.split(path, '/')[-1][0:4] # 'new'
-	# 	try:
-	# 		if deform_type=='fold':
-	# 			saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
-	# 			repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
-	# 			# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
-	# 			process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2'))
-	# 		elif deform_type=='curve':
-	# 			saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
-	# 			repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) #随机弯曲次数
-	# 			# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
-	# 			process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2'))		
-	# 		else:
-	# 			print('error type')
-	# 	except BaseException as err:
-	# 		print(err)
-	# 	# print('end')
-
-	# 	process_pool.close()
-	# 	process_pool.join()
 	
 
 

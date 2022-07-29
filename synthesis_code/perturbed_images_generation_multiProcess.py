@@ -15,8 +15,8 @@ import time
 from PIL import Image
 import threading
 import multiprocessing as mp
-from multiprocessing import Pool
-# 将上述代码的multiprocess改成billiard
+# from multiprocessing import Pool
+# 务必将上述代码的multiprocess改成billiard，另一个多线程库
 from billiard import Pool
 import re
 import cv2
@@ -70,8 +70,8 @@ class perturbed(sutils.BasePerturbed):
 		# enlarge_img_shrink = [640, 480]		# 420
 
 		''''''
-		im_lr = origin_img.shape[0]
-		im_ud = origin_img.shape[1]
+		im_lr = origin_img.shape[0] # H
+		im_ud = origin_img.shape[1] # W
 
 		reduce_value_v2 = np.random.choice([13, 26, 39, 44, 56, 78, 89, 99, 120, 134, 145, 170, 182], p=[0.02, 0.03, 0.04, 0.05, 0.06, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 		# reduce_value_v2 = np.random.choice([16, 24, 28, 32, 48, 64], p=[0.01, 0.1, 0.2, 0.3, 0.25, 0.14])
@@ -778,10 +778,10 @@ class perturbed(sutils.BasePerturbed):
 
 		'''
 		###################################################
-		test here
+		test visualization here
 		###################################################
 		'''
-		self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
+		# self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
 		
 		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
 		# with open(self.save_path+'color/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
@@ -799,11 +799,11 @@ class perturbed(sutils.BasePerturbed):
 		mm, ss = divmod(trian_t, 60)
 		hh, mm = divmod(mm, 60)
 		print(fold_curve+'_'+str(repeat_time)+" Time : %02d:%02d:%02d\n" % (hh, mm, ss))
-		d1=self.synthesis_perturbed_color[:, :, :3]
-		lbl1=fiducial_points_coordinate
-		itv1=np.array((segment_x, segment_y))
+		# d1=self.synthesis_perturbed_color[:, :, :3]
+		# lbl1=fiducial_points_coordinate
+		# itv1=np.array((segment_x, segment_y))
 
-		return d1,lbl1,itv1
+		return self.synthesis_perturbed_color[:, :, :3],fiducial_points_coordinate,np.array((segment_x, segment_y))
 
 def get_syn_image(path, bg_path, save_path, deform_type):
 
@@ -822,14 +822,12 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 				saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
 				repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
 				# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
-				
-				##################这里需要传参！！！！！！！20220729########################
-				process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2'))
+				d,lbl,itv=process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2')).get()
 			elif deform_type=='curve':
 				saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
 				repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) #随机弯曲次数
 				# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
-				process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2'))		
+				d,lbl,itv=process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2')).get()
 			else:
 				print('error type')
 		except BaseException as err:
@@ -841,6 +839,7 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 
 	process_pool.close()
 	process_pool.join()
+	return d,lbl,itv
 
 # if __name__ == '__main__':
 # 	# # print(mp.cpu_count())

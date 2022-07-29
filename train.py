@@ -179,6 +179,9 @@ def train(args):
                 loss.backward()
                 optimizer.step()
 
+
+
+
                 # 累加相邻的20个mini-batch中各项损失
                 loss_list.append(loss.item())
                 loss_interval_list += loss_interval.item()
