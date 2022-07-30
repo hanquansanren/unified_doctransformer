@@ -120,13 +120,13 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			'''get two deformation document images'''
 			d1,lbl1,itv1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
 			d2,lbl2,itv2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
-			d1 = np.uint8(d1)
-			d2 = np.uint8(d2)
+			d1=d1[:, :, ::-1]
+			d2=d2[:, :, ::-1]
 			print('finished two deformation document images')
 
 			'''visualization point'''
-			# self.check_item_vis(d1, lbl1, 1)
-			# self.check_item_vis(d2, lbl2, 2)
+			self.check_item_vis(d1, lbl1, 1)
+			self.check_item_vis(d2, lbl2, 2)
 
 
 			# im = self.resize_im1(im, self.bfreq, self.hpf)
@@ -139,9 +139,9 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
 			lbl2, itv2 = self.fiducal_points_lbl(lbl2, itv2)
 
-
-			# self.check_item_vis(d1, lbl1, 1)
-			# self.check_item_vis(d2, lbl2, 2)
+			'''visualization point'''
+			self.check_item_vis(d1, lbl1, 1)
+			self.check_item_vis(d2, lbl2, 2)
 			
 			d1 = d1.transpose(2, 0, 1)
 			d2 = d2.transpose(2, 0, 1)
