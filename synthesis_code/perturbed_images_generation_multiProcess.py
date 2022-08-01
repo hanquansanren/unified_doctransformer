@@ -33,85 +33,57 @@ class perturbed(sutils.BasePerturbed):
 	def save_img(self, fold_curve='fold', repeat_time=4, fiducial_points = 61, relativeShift_position='relativeShift_v2'):
 
 		origin_img = cv2.imread(self.path, flags=cv2.IMREAD_COLOR)
-		save_img_shape = [512*2, 512*2]
+		base_img_bound = [1024, 768]
 		input_image_height = origin_img.shape[0] # H
 		input_image_width = origin_img.shape[1] # W
 
-		'''随机缩小扫描图像'''
-		'''控制高度'''
-		reduce_value = np.random.choice([12, 24, 36, 48, 12*5, 12*6, 12*7, 14*8, 14*9, 15*10, 15*11, 15*12, 15*13], p=[0.02, 0.03, 0.04, 0.05, 0.06, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
-		base_img_shrink = save_img_shape[0] - reduce_value
+		'''随机设定扫描图像的长边要缩小多少'''
+		reduce_value = np.random.randint(15,370)
+		if input_image_height > input_image_width: # H>W 常见情况
+			random_shrink_long_edge = base_img_bound[0] - reduce_value
+			scaled_image_height = random_shrink_long_edge
+			scaled_image_width = int(input_image_width / input_image_height * random_shrink_long_edge)
+		else:      # W>H 较少见情况
+			random_shrink_long_edge = base_img_bound[1] - reduce_value
+			scaled_image_width = random_shrink_long_edge
+			scaled_image_height = int(input_image_height / input_image_width * random_shrink_long_edge)
+			
+		self.origin_img = cv2.resize(origin_img, (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_CUBIC)
+		# if round(scaled_image_height / scaled_image_width, 2) < 0.5 or round(scaled_image_width / scaled_image_height, 2) < 0.5:
+		# 	repeat_time = min(repeat_time, 8) #如果原图的横纵比比较极端（比如长票据），则控制最大的弯折次数为8
 
-		'''控制宽度'''
-		reduce_value_v2 = np.random.choice([13, 26, 39, 44, 56, 78, 89, 99, 120, 134, 145, 170, 182], p=[0.02, 0.03, 0.04, 0.05, 0.06, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
-		
-
-
-
-		if input_image_height > input_image_width:
-			input_image_width = min(int(input_image_width / input_image_height * base_img_shrink), save_img_shape[1] - reduce_value_v2)
-			input_image_height = save_img_shape[0] - reduce_value
-		else:
-			base_img_shrink = save_img_shape[1] - reduce_value
-			input_image_height = min(int(input_image_height / input_image_width * base_img_shrink), save_img_shape[0] - reduce_value_v2)
-			input_image_width = base_img_shrink
-
-		# if round(input_image_height / input_image_width, 2) < 0.5 or round(input_image_width / input_image_height, 2) < 0.5:
-		# 	repeat_time = min(repeat_time, 8) #如果原图的横纵比比较极端（比如票据），则控制最大的弯折次数为8
-
-		edge_padding = 3
-		input_image_height -= input_image_height % (fiducial_points-1) - (2*edge_padding)		# input_image_height % (fiducial_points-1) - 1
-		input_image_width -= input_image_width % (fiducial_points-1) - (2*edge_padding)		# input_image_width % (fiducial_points-1) - 1
-		#这里有没有可能减出一个负数，有待研究
-
-
-
-
-
-		segment_x = (input_image_height) // (fiducial_points-1)
-		segment_y = (input_image_width) // (fiducial_points-1)
-
-
-
-
-
-		# im_hight = np.linspace(edge_padding, input_image_height - edge_padding, fiducial_points, dtype=np.int64)
-		# im_wide = np.linspace(edge_padding, input_image_width - edge_padding, fiducial_points, dtype=np.int64)
-		# im_x, im_y = np.meshgrid(im_hight, im_wide)
+		'''参考点网格'''
+		im_hight = np.linspace(0, scaled_image_height, fiducial_points, dtype=np.int64)
+		im_wide = np.linspace(0, scaled_image_height, fiducial_points, dtype=np.int64)
+		im_x, im_y = np.meshgrid(im_hight, im_wide)
 		# plt.plot(im_x, im_y,
 		# 		 color='limegreen',
 		# 		 marker='.',
 		# 		 linestyle='')
 		# plt.grid(True)
-		# plt.show()
 		# plt.savefig('./predict.png')
-		
-		'''根据缩小的图像尺寸，调节背景图的尺寸'''
-		'''后面再根据背景图补上XY间隔'''
-		enlarge_img_shrink = [512*4, 512*4]	
-		self.origin_img = cv2.resize(origin_img, (input_image_width, input_image_height), interpolation=cv2.INTER_CUBIC)
 
-		# perturbed_bg_ = getDatasets(self.bg_path)
+		# enlarge_img_shrink = [512*4, 512*4]
+		enlarge_img_shrink = [2048, 2024]
 		bg_img = './dataset/background/' + random.choice(self.bg_img_list)
 		perturbed_bg_img = cv2.imread(bg_img, flags=cv2.IMREAD_COLOR)
 		perturbed_bg_img = cv2.rotate(perturbed_bg_img, cv2.ROTATE_90_CLOCKWISE)
 		# lp2 = cv2.rotate(lp, cv2.ROTATE_90_COUNTERCLOCKWISE)
-		mesh_shape = self.origin_img.shape[:2]
+		mesh_shape = self.origin_img.shape[0:2] # (829, 621, 3)
 
 		self.synthesis_perturbed_img = np.full((enlarge_img_shrink[0], enlarge_img_shrink[1], 3), 256, dtype=np.float32)#np.zeros_like(perturbed_bg_img)
-		# self.synthesis_perturbed_img = np.full((enlarge_img_shrink[0], enlarge_img_shrink[1], 3), 0, dtype=np.int16)#np.zeros_like(perturbed_bg_img)
-		self.new_shape = self.synthesis_perturbed_img.shape[:2]
-		perturbed_bg_img = cv2.resize(perturbed_bg_img, (save_img_shape[1], save_img_shape[0]), cv2.INPAINT_TELEA)
+		self.new_shape = self.synthesis_perturbed_img.shape[0:2] #背景图的初始尺寸2048*2048
+		perturbed_bg_img = cv2.resize(perturbed_bg_img, (base_img_bound[1], base_img_bound[0]), cv2.INPAINT_TELEA)
 
-		origin_pixel_position = np.argwhere(np.zeros(mesh_shape, dtype=np.uint32) == 0).reshape(mesh_shape[0], mesh_shape[1], 2)
+		origin_pixel_position = np.argwhere(np.zeros(mesh_shape, dtype=np.uint32) == 0).reshape(mesh_shape[0], mesh_shape[1], 2) #先x后Y
 		pixel_position = np.argwhere(np.zeros(self.new_shape, dtype=np.uint32) == 0).reshape(self.new_shape[0], self.new_shape[1], 2)
 		self.perturbed_xy_ = np.zeros((self.new_shape[0], self.new_shape[1], 2))
 		# self.perturbed_xy_ = pixel_position.copy().astype(np.float32)
 		# fiducial_points_grid = origin_pixel_position[im_x, im_y]
 
 		self.synthesis_perturbed_label = np.zeros((self.new_shape[0], self.new_shape[1], 2))
-		x_min, y_min, x_max, y_max = self.adjust_position_v2(0, 0, mesh_shape[0], mesh_shape[1], save_img_shape)
-		origin_pixel_position += [x_min, y_min]
+		x_min, y_min, x_max, y_max = self.adjust_position_v2(0, 0, mesh_shape[0], mesh_shape[1], base_img_bound)
+		origin_pixel_position += [x_min, y_min] # 从坐标原点移动到(115,86)
 
 		x_min, y_min, x_max, y_max = self.adjust_position(0, 0, mesh_shape[0], mesh_shape[1])
 		x_shift = random.randint(-enlarge_img_shrink[0]//16, enlarge_img_shrink[0]//16)
@@ -125,6 +97,13 @@ class perturbed(sutils.BasePerturbed):
 		im_x += x_min
 		im_y += y_min
 
+		plt.plot(im_x, im_y,
+				 color='limegreen',
+				 marker='.',
+				 linestyle='')
+		plt.grid(True)
+		plt.savefig('./predicta.png')
+
 		self.synthesis_perturbed_img[x_min:x_max, y_min:y_max] = self.origin_img
 		self.synthesis_perturbed_label[x_min:x_max, y_min:y_max] = origin_pixel_position
 
@@ -135,8 +114,12 @@ class perturbed(sutils.BasePerturbed):
 		foreORbackground_label_map = np.full((self.new_shape), 0, dtype=np.int16)
 		foreORbackground_label_map[x_min:x_max, y_min:y_max] = foreORbackground_label
 
-		# synthesis_perturbed_img_map = self.pad(self.synthesis_perturbed_img.copy(), x_min, y_min, x_max, y_max)
-		# synthesis_perturbed_label_map = self.pad(synthesis_perturbed_label_map, x_min, y_min, x_max, y_max)
+
+
+
+
+
+
 		'''*****************************************************************'''
 		is_normalizationFun_mixture = self.is_perform(0.2, 0.8)
 		# if not is_normalizationFun_mixture:
@@ -178,10 +161,10 @@ class perturbed(sutils.BasePerturbed):
 				else:
 					alpha_perturbed = random.randint(80, 160) / 100
 			''''''
-			linspace_x = [0, (self.new_shape[0] - input_image_height) // 2 - 1,
-						  self.new_shape[0] - (self.new_shape[0] - input_image_height) // 2 - 1, self.new_shape[0] - 1]
-			linspace_y = [0, (self.new_shape[1] - input_image_width) // 2 - 1,
-						  self.new_shape[1] - (self.new_shape[1] - input_image_width) // 2 - 1, self.new_shape[1] - 1]
+			linspace_x = [0, (self.new_shape[0] - scaled_image_height) // 2 - 1,
+						  self.new_shape[0] - (self.new_shape[0] - scaled_image_height) // 2 - 1, self.new_shape[0] - 1]
+			linspace_y = [0, (self.new_shape[1] - scaled_image_width) // 2 - 1,
+						  self.new_shape[1] - (self.new_shape[1] - scaled_image_width) // 2 - 1, self.new_shape[1] - 1]
 			linspace_x_seq = [1, 2, 3]
 			linspace_y_seq = [1, 2, 3]
 			r_x = random.choice(linspace_x_seq)
@@ -197,16 +180,6 @@ class perturbed(sutils.BasePerturbed):
 			perturbed_pp = np.array(
 				[random.randint(linspace_x[r_x-1] * 10, linspace_x[r_x] * 10),
 				 random.randint(linspace_y[r_y-1] * 10, linspace_y[r_y] * 10)])/10
-			# perturbed_p, perturbed_pp = np.array(
-			# 	[random.randint(0, self.new_shape[0] * 10) / 10,
-			# 	 random.randint(0, self.new_shape[1] * 10) / 10]) \
-			# 	, np.array([random.randint(0, self.new_shape[0] * 10) / 10,
-			# 	 			random.randint(0, self.new_shape[1] * 10) / 10])
-			# perturbed_p, perturbed_pp = np.array(
-			# 	[random.randint((self.new_shape[0]-input_image_height)//2*10, (self.new_shape[0]-(self.new_shape[0]-input_image_height)//2) * 10) / 10,
-			# 	 random.randint((self.new_shape[1]-input_image_width)//2*10, (self.new_shape[1]-(self.new_shape[1]-input_image_width)//2) * 10) / 10]) \
-			# 	, np.array([random.randint((self.new_shape[0]-input_image_height)//2*10, (self.new_shape[0]-(self.new_shape[0]-input_image_height)//2) * 10) / 10,
-			# 	 			random.randint((self.new_shape[1]-input_image_width)//2*10, (self.new_shape[1]-(self.new_shape[1]-input_image_width)//2) * 10) / 10])
 			''''''
 
 			perturbed_vp = perturbed_pp - perturbed_p
@@ -359,6 +332,8 @@ class perturbed(sutils.BasePerturbed):
 		# self.perturbed_xy_ = cv2.blur(self.perturbed_xy_, (7, 7))
 		self.perturbed_xy_ = cv2.GaussianBlur(self.perturbed_xy_, (7, 7), 0)
 
+		'''''''''ggggggggggggggggggggggggggggggggg'''''''''''
+		#########################
 		'''get fiducial points'''
 		fiducial_points_coordinate = self.perturbed_xy_[im_x, im_y]
 
@@ -384,13 +359,6 @@ class perturbed(sutils.BasePerturbed):
 		self.synthesis_perturbed_label = synthesis_perturbed_label
 		self.foreORbackground_label = foreORbackground_label
 
-		'''draw fiducial points
-		stepSize = 0
-		fiducial_points_synthesis_perturbed_img = self.synthesis_perturbed_img.copy()
-		for l in fiducial_points_coordinate.astype(np.int64).reshape(-1,2):
-			cv2.circle(fiducial_points_synthesis_perturbed_img, (l[1] + math.ceil(stepSize / 2), l[0] + math.ceil(stepSize / 2)), 5, (0, 0, 255), -1)
-		cv2.imwrite('/lustre/home/gwxie/program/project/unwarp/unwarp_perturbed/TPS/img/cv_TPS_large.jpg', fiducial_points_synthesis_perturbed_img)
-		'''
 
 		'''clip'''
 		perturbed_x_min, perturbed_y_min, perturbed_x_max, perturbed_y_max = -1, -1, self.new_shape[0], self.new_shape[1]
@@ -414,24 +382,24 @@ class perturbed(sutils.BasePerturbed):
 		if perturbed_x_min == 0 or perturbed_x_max == self.new_shape[0] or perturbed_y_min == self.new_shape[1] or perturbed_y_max == self.new_shape[1]:
 			raise Exception('clip error')
 
-		if perturbed_x_max - perturbed_x_min < input_image_height//2 or perturbed_y_max - perturbed_y_min < input_image_width//2:
+		if perturbed_x_max - perturbed_x_min < scaled_image_height//2 or perturbed_y_max - perturbed_y_min < scaled_image_width//2:
 			raise Exception('clip error')
 
 
 		perfix_ = self.save_suffix
 		is_shrink = False
-		if perturbed_x_max - perturbed_x_min > save_img_shape[0] or perturbed_y_max - perturbed_y_min > save_img_shape[1]:
+		if perturbed_x_max - perturbed_x_min > base_img_bound[0] or perturbed_y_max - perturbed_y_min > base_img_bound[1]:
 			is_shrink = True
-			synthesis_perturbed_img = cv2.resize(self.synthesis_perturbed_img[perturbed_x_min:perturbed_x_max, perturbed_y_min:perturbed_y_max, :].copy(), (input_image_width, input_image_height), interpolation=cv2.INTER_LINEAR)
-			synthesis_perturbed_label = cv2.resize(self.synthesis_perturbed_label[perturbed_x_min:perturbed_x_max, perturbed_y_min:perturbed_y_max, :].copy(), (input_image_width, input_image_height), interpolation=cv2.INTER_LINEAR)
-			foreORbackground_label = cv2.resize(self.foreORbackground_label[perturbed_x_min:perturbed_x_max, perturbed_y_min:perturbed_y_max].copy(), (input_image_width, input_image_height), interpolation=cv2.INTER_LINEAR)
+			synthesis_perturbed_img = cv2.resize(self.synthesis_perturbed_img[perturbed_x_min:perturbed_x_max, perturbed_y_min:perturbed_y_max, :].copy(), (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_LINEAR)
+			synthesis_perturbed_label = cv2.resize(self.synthesis_perturbed_label[perturbed_x_min:perturbed_x_max, perturbed_y_min:perturbed_y_max, :].copy(), (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_LINEAR)
+			foreORbackground_label = cv2.resize(self.foreORbackground_label[perturbed_x_min:perturbed_x_max, perturbed_y_min:perturbed_y_max].copy(), (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_LINEAR)
 			foreORbackground_label[foreORbackground_label < 0.99] = 0
 			foreORbackground_label[foreORbackground_label >= 0.99] = 1
 			'''shrink fiducial points'''
 			center_x_l, center_y_l = perturbed_x_min + (perturbed_x_max - perturbed_x_min) // 2, perturbed_y_min + (perturbed_y_max - perturbed_y_min) // 2
 			fiducial_points_coordinate_copy = fiducial_points_coordinate.copy()
-			shrink_x = input_image_height/(perturbed_x_max - perturbed_x_min)
-			shrink_y = input_image_width/(perturbed_y_max - perturbed_y_min)
+			shrink_x = scaled_image_height/(perturbed_x_max - perturbed_x_min)
+			shrink_y = scaled_image_width/(perturbed_y_max - perturbed_y_min)
 			fiducial_points_coordinate *= [shrink_x, shrink_y]
 			center_x_l *= shrink_x
 			center_y_l *= shrink_y
@@ -440,7 +408,7 @@ class perturbed(sutils.BasePerturbed):
 			# fiducial_points_coordinate[:1, 1:, 1] *= shrink_y
 			# perturbed_x_min_copy, perturbed_y_min_copy, perturbed_x_max_copy, perturbed_y_max_copy = perturbed_x_min, perturbed_y_min, perturbed_x_max, perturbed_y_max
 
-			perturbed_x_min, perturbed_y_min, perturbed_x_max, perturbed_y_max = self.adjust_position_v2(0, 0, input_image_height, input_image_width, self.new_shape)
+			perturbed_x_min, perturbed_y_min, perturbed_x_max, perturbed_y_max = self.adjust_position_v2(0, 0, scaled_image_height, scaled_image_width, self.new_shape)
 
 			self.synthesis_perturbed_img = np.full_like(self.synthesis_perturbed_img, 256)
 			self.synthesis_perturbed_label = np.zeros_like(self.synthesis_perturbed_label)
@@ -462,7 +430,7 @@ class perturbed(sutils.BasePerturbed):
 						   (l[1] + math.ceil(stepSize / 2), l[0] + math.ceil(stepSize / 2)), 5, (0, 0, 255), -1)
 			cv2.imwrite('/lustre/home/gwxie/program/project/unwarp/unwarp_perturbed/TPS/img/cv_TPS_small.jpg',fiducial_points_synthesis_perturbed_img)
 			'''
-		self.new_shape = save_img_shape
+		self.new_shape = base_img_bound
 		self.synthesis_perturbed_img = self.synthesis_perturbed_img[
 									   center_x - self.new_shape[0] // 2:center_x + self.new_shape[0] // 2,
 									   center_y - self.new_shape[1] // 2:center_y + self.new_shape[1] // 2,
@@ -565,7 +533,7 @@ class perturbed(sutils.BasePerturbed):
 		# perturbed_y_min = max(perturbed_y_min - reduce_value_y, 0)
 		# perturbed_y_max = min(perturbed_y_max + reduce_value_y, self.new_shape[1])
 
-		# if input_image_height >= input_image_width:
+		# if scaled_image_height >= scaled_image_width:
 		# 	self.synthesis_perturbed_color[:, perturbed_y_min:perturbed_y_max, :] = synthesis_perturbed_color[:, perturbed_y_min:perturbed_y_max, :]
 		# 	# self.synthesis_perturbed_grey[:, perturbed_y_min:perturbed_y_max, :] = synthesis_perturbed_grey[:, perturbed_y_min:perturbed_y_max, :]
 		# else:
@@ -586,44 +554,9 @@ class perturbed(sutils.BasePerturbed):
 		else:
 			None
 		
-		
-		# '''draw fiducial points'''
-		# stepSize = 0
-		# fiducial_points_synthesis_perturbed_img = self.synthesis_perturbed_color[:, :, :3].copy()
-		# for l in fiducial_points_coordinate.astype(np.int64).reshape(-1, 2):
-		# 	cv2.circle(fiducial_points_synthesis_perturbed_img, (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 2, (0, 0, 255), -1)
-		# cv2.imwrite(self.save_path + 'fiducial_points/' + perfix_ + '_' + fold_curve + '.png', fiducial_points_synthesis_perturbed_img)
-
-		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
-
-		# '''forward-begin'''
-		# self.forward_mapping = np.full((save_img_shape[0], save_img_shape[1], 2), 0, dtype=np.float32)
-		# forward_mapping = np.full((save_img_shape[0], save_img_shape[1], 2), 0, dtype=np.float32)
-		# forward_position = (self.synthesis_perturbed_color[:, :, 3:5] + pixel_position)[self.synthesis_perturbed_color[:, :, 5] != 0, :]
-		# flat_position = np.argwhere(np.zeros(save_img_shape, dtype=np.uint32) == 0)
-		# vtx, wts = self.interp_weights(forward_position, flat_position)
-		# wts_sum = np.abs(wts).sum(-1)
-		# wts = wts[wts_sum <= 1, :]
-		# vtx = vtx[wts_sum <= 1, :]
-		# flat_position_forward = flat_position.reshape(save_img_shape[0], save_img_shape[1], 2)[self.synthesis_perturbed_color[:, :, 5] != 0, :]
-		# forward_mapping.reshape(save_img_shape[0] * save_img_shape[1], 2)[wts_sum <= 1, :] = self.interpolate(flat_position_forward, vtx, wts)
-		# forward_mapping = forward_mapping.reshape(save_img_shape[0], save_img_shape[1], 2)
-
-		# mapping_x_min_, mapping_y_min_, mapping_x_max_, mapping_y_max_ = self.adjust_position_v2(0, 0, input_image_height, input_image_width, self.new_shape)
-		# shreshold_zoom_out = 2
-		# mapping_x_min = mapping_x_min_ + shreshold_zoom_out
-		# mapping_y_min = mapping_y_min_ + shreshold_zoom_out
-		# mapping_x_max = mapping_x_max_ - shreshold_zoom_out
-		# mapping_y_max = mapping_y_max_ - shreshold_zoom_out
-		# self.forward_mapping[mapping_x_min:mapping_x_max, mapping_y_min:mapping_y_max] = forward_mapping[mapping_x_min:mapping_x_max, mapping_y_min:mapping_y_max]
-		# self.scan_img = np.full((save_img_shape[0], save_img_shape[1], 3), 0, dtype=np.float32)
-		# self.scan_img[mapping_x_min_:mapping_x_max_, mapping_y_min_:mapping_y_max_] = self.origin_img
-		# self.origin_img = self.scan_img
-		# # flat_img = np.full((save_img_shape[0], save_img_shape[1], 3), 0, dtype=np.float32)
-		# # cv2.remap(self.synthesis_perturbed_color[:, :, :3], self.forward_mapping[:, :, 1], self.forward_mapping[:, :, 0], cv2.INTER_LINEAR, flat_img)
-		# # cv2.imwrite(self.save_path + 'outputs/1.jpg', flat_img)
-		
-		
+		'''get interval'''
+		segment_x = (self.synthesis_perturbed_color.shape[0]) // (fiducial_points-1)
+		segment_y = (self.synthesis_perturbed_color.shape[1]) // (fiducial_points-1)
 		# '''forward-end'''
 		# synthesis_perturbed_data = {
 		# 	'image':self.synthesis_perturbed_color[:, :, :3],
@@ -638,6 +571,7 @@ class perturbed(sutils.BasePerturbed):
 		'''
 		self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
 		
+
 		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
 		# with open(self.save_path+'color/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
 		# 	pickle_perturbed_data = pickle.dumps(synthesis_perturbed_data)
@@ -649,14 +583,10 @@ class perturbed(sutils.BasePerturbed):
 		# cv2.imwrite(self.save_path+'grey_im/'+perfix_+'_'+fold_curve+'.png', self.synthesis_perturbed_color[:, :, :1])
 
 
-		# cv2.imwrite(self.save_path + 'scan/' + self.save_suffix + '_' + str(m) + '.png', self.origin_img)
 		trian_t = time.time() - begin_train
 		mm, ss = divmod(trian_t, 60)
 		hh, mm = divmod(mm, 60)
 		print(fold_curve+'_'+str(repeat_time)+" Time : %02d:%02d:%02d\n" % (hh, mm, ss))
-		# d1=self.synthesis_perturbed_color[:, :, :3]
-		# lbl1=fiducial_points_coordinate
-		# itv1=np.array((segment_x, segment_y))
 
 		return np.uint8(self.synthesis_perturbed_color[:, :, :3]),fiducial_points_coordinate,np.array((segment_x, segment_y))
 	
@@ -672,7 +602,7 @@ class perturbed(sutils.BasePerturbed):
 		im.convert('RGB').save("./data_vis/img_{}.png".format(idx))
 		
 		# fig= plt.figure(j,figsize = (6,6))
-		fig, ax = plt.subplots(figsize = (10.24,10.24),facecolor='white')
+		fig, ax = plt.subplots(figsize = (7.68,10.24),facecolor='white')
 		ax.imshow(im)
 		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
 		ax.axis('off')
