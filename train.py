@@ -277,8 +277,8 @@ if __name__ == '__main__':
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
 
-
-    parser.add_argument('--data_path_train', default='./dataset/WarpDoc', type=str,
+    # './dataset/WarpDoc'
+    parser.add_argument('--data_path_train', default='./synthesis_code', type=str,
                         help='the path of train images.')  # train image path
 
     # parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,

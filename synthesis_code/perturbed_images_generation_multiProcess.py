@@ -40,21 +40,28 @@ class perturbed(sutils.BasePerturbed):
 		'''随机设定扫描图像的长边要缩小多少'''
 		reduce_value = np.random.randint(15,370)
 		if input_image_height > input_image_width: # H>W 常见情况
+			flag=1
 			random_shrink_long_edge = base_img_bound[0] - reduce_value
 			scaled_image_height = random_shrink_long_edge
 			scaled_image_width = int(input_image_width / input_image_height * random_shrink_long_edge)
 		else:      # W>H 较少见情况
+			flag=0
+			base_img_bound = [768, 1024]
 			random_shrink_long_edge = base_img_bound[1] - reduce_value
 			scaled_image_width = random_shrink_long_edge
 			scaled_image_height = int(input_image_height / input_image_width * random_shrink_long_edge)
 			
-		self.origin_img = cv2.resize(origin_img, (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_CUBIC)
+		
 		# if round(scaled_image_height / scaled_image_width, 2) < 0.5 or round(scaled_image_width / scaled_image_height, 2) < 0.5:
 		# 	repeat_time = min(repeat_time, 8) #如果原图的横纵比比较极端（比如长票据），则控制最大的弯折次数为8
-
+		edge_padding = 2
+		scaled_image_height -= scaled_image_height % (fiducial_points-1) - (2*edge_padding)		
+		scaled_image_width -= scaled_image_width % (fiducial_points-1) - (2*edge_padding)
+		self.origin_img = cv2.resize(origin_img, (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_CUBIC)		
+	
 		'''参考点网格'''
-		im_hight = np.linspace(0, scaled_image_height, fiducial_points, dtype=np.int64)
-		im_wide = np.linspace(0, scaled_image_height, fiducial_points, dtype=np.int64)
+		im_hight = np.linspace(0, scaled_image_height-edge_padding, fiducial_points, dtype=np.int64)
+		im_wide = np.linspace(0, scaled_image_width-edge_padding, fiducial_points, dtype=np.int64)
 		im_x, im_y = np.meshgrid(im_hight, im_wide)
 		# plt.plot(im_x, im_y,
 		# 		 color='limegreen',
@@ -67,7 +74,10 @@ class perturbed(sutils.BasePerturbed):
 		enlarge_img_shrink = [2048, 2024]
 		bg_img = './dataset/background/' + random.choice(self.bg_img_list)
 		perturbed_bg_img = cv2.imread(bg_img, flags=cv2.IMREAD_COLOR)
-		perturbed_bg_img = cv2.rotate(perturbed_bg_img, cv2.ROTATE_90_CLOCKWISE)
+		if flag==1:
+			perturbed_bg_img = cv2.rotate(perturbed_bg_img, cv2.ROTATE_90_CLOCKWISE)
+		else:
+			None
 		# lp2 = cv2.rotate(lp, cv2.ROTATE_90_COUNTERCLOCKWISE)
 		mesh_shape = self.origin_img.shape[0:2] # (829, 621, 3)
 
@@ -598,11 +608,14 @@ class perturbed(sutils.BasePerturbed):
 		interval : segment     # 2*1
 		'''
 		im=np.uint8(im)
+		h=im.shape[0]*0.01
+		w=im.shape[1]*0.01
 		im = Image.fromarray(im)
 		im.convert('RGB').save("./data_vis/img_{}.png".format(idx))
 		
 		# fig= plt.figure(j,figsize = (6,6))
-		fig, ax = plt.subplots(figsize = (7.68,10.24),facecolor='white')
+		# fig, ax = plt.subplots(figsize = (10.24,7.68),facecolor='white')
+		fig, ax = plt.subplots(figsize = (w,h),facecolor='white')
 		ax.imshow(im)
 		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
 		ax.axis('off')

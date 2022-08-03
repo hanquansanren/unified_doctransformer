@@ -34,11 +34,8 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 
 		self.scan_root=os.path.join(self.root, 'digital')
 		self.wild_root=os.path.join(self.root, 'image')
-		# self.rotate_root=os.path.join(self.root, 'digital', 'rotate/')
-		# self.perspective_root=os.path.join(self.root, 'digital', 'perspective/')
-		# self.random_root=os.path.join(self.root, 'digital', 'random/')
-		# self.curved_root=os.path.join(self.root, 'digital', 'curved/')
-		# self.fold_root=os.path.join(self.root, 'digital', 'fold/')
+		self.scan_root=os.path.join(self.root, 'rotate')
+
 		self.bg_path = './dataset/background/'
 		self.save_path = './output/'
 
