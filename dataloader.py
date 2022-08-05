@@ -33,8 +33,9 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		self.deform_type_list=['fold', 'curve']
 
 		self.scan_root=os.path.join(self.root, 'digital')
+		# self.scan_root=os.path.join(self.root, 'rotate')
 		self.wild_root=os.path.join(self.root, 'image')
-		self.scan_root=os.path.join(self.root, 'rotate')
+		
 
 		self.bg_path = './dataset/background/'
 		self.save_path = './output/'
@@ -117,7 +118,7 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			'''get two deformation document images'''
 			d1,lbl1,itv1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
 			d2,lbl2,itv2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
-			d1=d1[:, :, ::-1]
+			d1=d1[:, :, ::-1] # 变成RGB通道顺序
 			d2=d2[:, :, ::-1]
 			print('finished two deformation document images')
 
@@ -128,13 +129,15 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 
 			# im = self.resize_im1(im, self.bfreq, self.hpf)
 			'''resize and tansform to tensor'''
+			lbl1 = self.resize_lbl(lbl1,d1)
+			lbl2 = self.resize_lbl(lbl2,d2)
+			lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
+			lbl2, itv2 = self.fiducal_points_lbl(lbl2, itv2)
+
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
 
-			lbl1 = self.resize_lbl(lbl1)
-			lbl2 = self.resize_lbl(lbl2)
-			lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
-			lbl2, itv2 = self.fiducal_points_lbl(lbl2, itv2)
+
 
 			'''visualization point'''
 			self.check_item_vis(d1, lbl1, 1)
@@ -169,8 +172,10 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		return im
 
 
-	def resize_lbl(self, lbl):
-		lbl = lbl/[1024, 1024]*[992, 992]
+	def resize_lbl(self, lbl, image):
+		h=image.shape[0]
+		w=image.shape[1]
+		lbl = lbl/[w, h]*[992, 992]
 		# lbl = lbl/[960, 1024]*[496, 496]
 		return lbl
 
@@ -196,10 +201,12 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		lbl : fiducial_points  # 61*61*2 
 		'''
 		# im=np.uint8(im)
+		h=im.shape[0]*0.01
+		w=im.shape[1]*0.01
 		im = Image.fromarray(im)
 		im.convert('RGB').save("./data_vis/img_vis{}.png".format(idx))
 		
-		fig, ax = plt.subplots(figsize = (10.24,10.24),facecolor='white')
+		fig, ax = plt.subplots(figsize = (w,h),facecolor='white')
 		ax.imshow(im)
 		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
 		ax.axis('off')

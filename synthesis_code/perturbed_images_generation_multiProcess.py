@@ -40,7 +40,7 @@ class perturbed(sutils.BasePerturbed):
 		'''随机设定扫描图像的长边要缩小多少'''
 		reduce_value = np.random.randint(15,370)
 		if input_image_height > input_image_width: # H>W 常见情况
-			flag=1
+			flag=1 #用于决定是否将背景图像翻转90°
 			random_shrink_long_edge = base_img_bound[0] - reduce_value
 			scaled_image_height = random_shrink_long_edge
 			scaled_image_width = int(input_image_width / input_image_height * random_shrink_long_edge)
@@ -54,7 +54,7 @@ class perturbed(sutils.BasePerturbed):
 		
 		# if round(scaled_image_height / scaled_image_width, 2) < 0.5 or round(scaled_image_width / scaled_image_height, 2) < 0.5:
 		# 	repeat_time = min(repeat_time, 8) #如果原图的横纵比比较极端（比如长票据），则控制最大的弯折次数为8
-		edge_padding = 2
+		edge_padding = 2 #用于调整控制点对不齐合成扭曲图像边界的问题
 		scaled_image_height -= scaled_image_height % (fiducial_points-1) - (2*edge_padding)		
 		scaled_image_width -= scaled_image_width % (fiducial_points-1) - (2*edge_padding)
 		self.origin_img = cv2.resize(origin_img, (scaled_image_width, scaled_image_height), interpolation=cv2.INTER_CUBIC)		
@@ -579,7 +579,7 @@ class perturbed(sutils.BasePerturbed):
 		test visualization here
 		###################################################
 		'''
-		self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
+		# self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
 		
 
 		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
