@@ -31,10 +31,10 @@ from network import FiducialPoints, DilatedResnetForFlatByFiducialPointsS2
 # import utilsV3 as utils
 import utilsV4 as utils
 
-from dataloader import PerturbedDatastsForFiducialPoints_pickle_color_v2_v2
+from dataset import my_unified_dataset
 
 
-def train(args):
+def test(args):
     ''' setup path '''
     data_path = str(args.data_path_train)+'/'
     data_path_validate = str(args.data_path_validate)+'/'
@@ -133,13 +133,13 @@ def train(args):
     ''' load data '''
     FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
                             log_file=log_file, n_classes=n_classes, optimizer=optimizer, \
-                            data_loader=PerturbedDatastsForFiducialPoints_pickle_color_v2_v2, \
-                            data_path=data_path, data_path_validate=data_path_validate, data_path_test=data_path_test, data_preproccess=False)          # , valloaderSet=valloaderSet, v_loaderSet=v_loaderSet
+                            dataset=my_unified_dataset, \
+                            data_path=data_path, data_path_validate=data_path_validate, data_path_test=data_path_test)          # , valloaderSet=valloaderSet, v_loaderSet=v_loaderSet
     FlatImg.loadTestData()
     epoch = checkpoint['epoch'] if args.resume is not None else 0
 
     model.eval() #务必要加此步，转换为测试模式，将所有dropout层和batchnorm停止运作，直接输出
-    FlatImg.validateOrTestModelV3(epoch, 0, validate_test='t_all')
+    FlatImg.validateOrTestModelV3(epoch, validate_test='t_all')
     log_file.close()
     exit()
 
@@ -150,8 +150,8 @@ if __name__ == '__main__':
     parser.add_argument('--arch', nargs='?', type=str, default='Document-Dewarping-with-Control-Points',
                         help='Architecture')
 
-    parser.add_argument('--img_shrink', nargs='?', type=int, default=None,
-                        help='short edge of the input image')
+    # parser.add_argument('--img_shrink', nargs='?', type=int, default=None,
+    #                     help='short edge of the input image')
 
     parser.add_argument('--n_epoch', nargs='?', type=int, default=300,
                         help='# of the epochs')
@@ -167,10 +167,10 @@ if __name__ == '__main__':
     parser.add_argument('--print-freq', '-p', default=60, type=int,
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
-    parser.add_argument('--data_path_train', default=ROOT / 'dataset/fiducial1024/fiducial1024_v1/color/', type=str,
+    parser.add_argument('--data_path_train', default=ROOT / 'dataset/fiducial1024/fiducial1024_v1/color', type=str,
                         help='the path of train images.')  # train image path
 
-    parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024_v1/validate/', type=str,
+    parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024_v1/validate', type=str,
                         help='the path of validate images.')  # validate image path
 
     parser.add_argument('--output-path', default=ROOT / 'flat/', type=str, help='the path is used to  save output --img or result.') 
@@ -180,14 +180,14 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default='./ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl', type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=10,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='test',
                         help='train or test')       # train  validate
 
-    parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP/flat/2022-06-06/2022-06-06 17:06:59 @2022-06-06/144/2022-06-06@2022-06-06 17:06:59Document-Dewarping-with-Control-Points.pkl')
-    parser.add_argument('--data_path_test', default=ROOT / 'test/mytest0', type=str, help='the path of test images.')
+    # parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP/flat/2022-06-06/2022-06-06 17:06:59 @2022-06-06/144/2022-06-06@2022-06-06 17:06:59Document-Dewarping-with-Control-Points.pkl')
+    parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
@@ -212,4 +212,4 @@ if __name__ == '__main__':
     if not os.path.exists(path):
         os.makedirs(path)
 
-    train(args)
+    test(args)

@@ -598,8 +598,8 @@ class perturbed(sutils.BasePerturbed):
 		hh, mm = divmod(mm, 60)
 		print(fold_curve+'_'+str(repeat_time)+" Time : %02d:%02d:%02d\n" % (hh, mm, ss))
 
-		return np.uint8(self.synthesis_perturbed_color[:, :, :3]),fiducial_points_coordinate,np.array((segment_x, segment_y))
-	
+		# return np.uint8(self.synthesis_perturbed_color[:, :, :3]),fiducial_points_coordinate,np.array((segment_x, segment_y))
+		return np.uint8(self.synthesis_perturbed_color[:, :, :3]),fiducial_points_coordinate
 	
 	def check_vis(self, idx, im, lbl, interval):
 		'''
@@ -633,7 +633,7 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 	global begin_train
 	begin_train = time.time()
 	fiducial_points = 61	# 31
-	process_pool = Pool(4)
+	process_pool = Pool(18)
 
 	save_suffix = str.split(path, '/')[-2]+str.split(path, '/')[-1][0:4] # 'new'
 	for m_n in range(10):

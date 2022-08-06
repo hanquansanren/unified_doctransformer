@@ -16,12 +16,10 @@ from torch.utils import data
 import time
 
 
-class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
-	def __init__(self, root, mode='train', img_shrink=None, is_return_img_name=False, bfreq=None,hpf= None):
+class my_unified_dataset(data.Dataset):
+	def __init__(self, root, mode='train', bfreq=None,hpf= None):
 		self.root = os.path.expanduser(root) # './dataset/WarpDoc/'
 		self.mode = mode
-		self.img_shrink = img_shrink
-		self.is_return_img_name = is_return_img_name
 		# self.mean = np.array([104.00699, 116.66877, 122.67892])
 		self.images = collections.defaultdict(list)
 		self.labels = collections.defaultdict(list)
@@ -31,21 +29,17 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		# self.hpf = hpf
 		datasets = ['validate', 'train']
 		self.deform_type_list=['fold', 'curve']
-
 		self.scan_root=os.path.join(self.root, 'digital')
-		# self.scan_root=os.path.join(self.root, 'rotate')
 		self.wild_root=os.path.join(self.root, 'image')
-		
-
 		self.bg_path = './dataset/background/'
-		self.save_path = './output/'
+		self.save_path = './output/' # 用于将合成图像打包，在训练时保留即可，并不会被用到
 
 
-		if self.mode == 'test' or self.mode == 'eval':
+		if self.mode == 'test':
 			img_file_list = os.listdir(pjoin(self.root))
 			self.images[self.mode] = img_file_list
-			# self.images[self.mode] = sorted(img_file_list, key=lambda num: (
-			# int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
+			self.images[self.mode] = sorted(img_file_list, key=lambda num: (
+			int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
 		elif self.mode in datasets:
 			img_file_list = []		
 			for type in os.listdir(self.scan_root):
@@ -57,16 +51,7 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			raise Exception('load data error')
 		# self.checkimg()
 
-	def checkimg(self):
-		if self.mode == 'train' or self.mode == 'validate':
-			for im_name in self.images[self.mode]:
-				im_path = pjoin(self.scan_root, im_name)
-				try:
-					img = Image.open(im_path)
-				except:
-					print("bug image:", im_name)
-					# os.remove(im_path)
-		print('all images is well prepared')
+
 
 	def __len__(self):
 		return len(self.images[self.mode])
@@ -77,31 +62,17 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			im_path = pjoin(self.root, im_name)
 
 			im = cv2.imread(im_path, flags=cv2.IMREAD_COLOR)
-			h,w,c=im.shape
+			# h,w,c=im.shape
 			# if h<1024:
 			# 	im=np.pad(im,(((1024-h)//2,(1024-h)//2),(0,0),(0,0)),'constant')
 			# if w<960:
 			# 	im=np.pad(im,((0,0),((960-w)//2,(960-w)//2),(0,0)),'constant')
 			# print(im.shape)
-			im = self.resize_im0(im)
+			im = cv2.resize(im, (992, 992), interpolation=cv2.INTER_LINEAR)
+			im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 			im = self.transform_im(im)
 
-			if self.is_return_img_name:
-				return im, im_name
-			return im
-		elif self.mode == 'eval':
-			im_name = self.images[self.mode][item]
-			im_path = pjoin(self.root, im_name)
-
-			img = cv2.imread(im_path, flags=cv2.IMREAD_COLOR)
-
-			im = self.resize_im0(img)
-			im = self.transform_im(im)
-
-			if self.is_return_img_name:
-				return im, im_name
-			return im, img
-			# return im, img, im_name
+			return im, im_name
 
 		else: # train
 			# img = Image.open(im_path)	
@@ -111,13 +82,13 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			
 			'''choose two deform type randomly'''
 			deform_type1=np.random.choice(self.deform_type_list,p=[0.5,0.5])
-			print(deform_type1)
+			print('the first deformation type is:', deform_type1)
 			deform_type2=np.random.choice(self.deform_type_list,p=[0.5,0.5])
-			print(deform_type2)
+			print('the second deformation type is:', deform_type2)
 
 			'''get two deformation document images'''
-			d1,lbl1,itv1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
-			d2,lbl2,itv2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
+			d1,lbl1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
+			d2,lbl2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
 			d1=d1[:, :, ::-1] # 变成RGB通道顺序
 			d2=d2[:, :, ::-1]
 			print('finished two deformation document images')
@@ -131,8 +102,8 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			'''resize and tansform to tensor'''
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
-			lbl1, itv1 = self.fiducal_points_lbl(lbl1, itv1)
-			lbl2, itv2 = self.fiducal_points_lbl(lbl2, itv2)
+			lbl1 = self.fiducal_points_lbl(lbl1)
+			lbl2 = self.fiducal_points_lbl(lbl2)
 
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
@@ -149,12 +120,12 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 			lbl2 = lbl2.transpose(2, 0, 1)
 			d1 = torch.from_numpy(d1).float()
 			lbl1 = torch.from_numpy(lbl1).float()
-			itv1 = torch.from_numpy(itv1).float()
+			# itv1 = torch.from_numpy(itv1).float()
 			d2 = torch.from_numpy(d2).float()
 			lbl2 = torch.from_numpy(lbl2).float()
-			itv2 = torch.from_numpy(itv2).float()
+			# itv2 = torch.from_numpy(itv2).float()
 			print('finished dataset preparation')
-			return d1, lbl1, itv2, d2, lbl2, itv2
+			return d1, lbl1, d2, lbl2
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
@@ -164,7 +135,7 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 
 	def resize_im0(self, im):
 		try:
-			im = cv2.resize(im, (992, 992), interpolation=cv2.INTER_LINEAR)
+			im = cv2.resize(im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
 			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
 		except:
 			pass
@@ -175,16 +146,17 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 	def resize_lbl(self, lbl, image):
 		h=image.shape[0]
 		w=image.shape[1]
-		lbl = lbl/[w, h]*[992, 992]
+		lbl = lbl/[w, h]*[1020, 1020]
 		# lbl = lbl/[960, 1024]*[496, 496]
 		return lbl
 
-	def fiducal_points_lbl(self, fiducial_points, interval):
+	def fiducal_points_lbl(self, fiducial_points):
 
 		fiducial_point_gaps = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]  # POINTS NUM: 61, 31, 21, 16, 13, 11, 7, 6, 5, 4, 3, 2
 		fiducial_points = fiducial_points[::fiducial_point_gaps[self.row_gap], ::fiducial_point_gaps[self.col_gap], :]
-		interval = interval * [fiducial_point_gaps[self.col_gap], fiducial_point_gaps[self.row_gap]]
-		return fiducial_points, interval
+		# interval = interval * [fiducial_point_gaps[self.col_gap], fiducial_point_gaps[self.row_gap]]
+		# return fiducial_points, interval
+		return fiducial_points
 
 
 
@@ -215,23 +187,32 @@ class PerturbedDatastsForFiducialPoints_pickle_color_v2_v2(data.Dataset):
 		plt.savefig('./data_vis/point_vis{}.png'.format(idx))
 		plt.close()
 
-	def resize_im1(self, im, bfreq, hpf):
-		try:
-			im = cv2.resize(im, (992, 992), interpolation=cv2.INTER_LINEAR)
-			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
-		except:
-			pass
+	# def resize_im1(self, im, bfreq, hpf):
+	# 	try:
+	# 		im = cv2.resize(im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
+	# 		# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
+	# 	except:
+	# 		pass
 	
-		# freq = np.fft.fft2(im,axes=(0,1))
-		# freq = np.fft.fftshift(freq)
+	# 	# freq = np.fft.fft2(im,axes=(0,1))
+	# 	# freq = np.fft.fftshift(freq)
 
-		# rhpf = bfreq + hpf * freq
-		# img_rhpf = np.abs(np.fft.ifft2(rhpf,axes=(0,1)))
-		# img_rhpf = np.clip(img_rhpf,0,255) #会产生一些过大值需要截断
-		# img_rhpf = img_rhpf.astype('uint8')
+	# 	# rhpf = bfreq + hpf * freq
+	# 	# img_rhpf = np.abs(np.fft.ifft2(rhpf,axes=(0,1)))
+	# 	# img_rhpf = np.clip(img_rhpf,0,255) #会产生一些过大值需要截断
+	# 	# img_rhpf = img_rhpf.astype('uint8')
 
-		# return img_rhpf
-		return im
+	# 	# return img_rhpf
+	# 	return im
 	
-
+	def checkimg(self):
+		if self.mode == 'train' or self.mode == 'validate':
+			for im_name in self.images[self.mode]:
+				im_path = pjoin(self.scan_root, im_name)
+				try:
+					img = Image.open(im_path)
+				except:
+					print("bug image:", im_name)
+					# os.remove(im_path)
+		print('all images is well prepared')
 

@@ -34,7 +34,7 @@ from network import FiducialPoints, DilatedResnetForFlatByFiducialPointsS2
 # import utilsV3 as utils
 import utilsV4 as utils
 
-from dataloader import PerturbedDatastsForFiducialPoints_pickle_color_v2_v2
+from dataset import my_unified_dataset
 
 from loss import Losses
 
@@ -132,17 +132,17 @@ def train(args):
     ''' load data '''
     FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
                             log_file=reslut_file, n_classes=n_classes, optimizer=optimizer, \
-                            loss_fn=loss_fun, loss_fn2=loss_fun2, data_loader=PerturbedDatastsForFiducialPoints_pickle_color_v2_v2, \
+                            loss_fn=loss_fun, loss_fn2=loss_fun2, dataset=my_unified_dataset, \
                             data_path=data_path, data_path_validate=None, data_path_test=data_path_test) 
     
-    trainloader = FlatImg.loadTrainData(data_split='train', is_shuffle=True)
+    trainloader = FlatImg.loadTrainData(data_split='train')
     trainloader_len = len(trainloader)
     print("Total number of mini-batch in each epoch: ", trainloader_len)
     
     train_time = AverageMeter()
     losses = AverageMeter()
     FlatImg.lambda_loss = 1 # 主约束
-    FlatImg.lambda_loss_interval = 0.01 # 平面图的XY间隔距离
+    # FlatImg.lambda_loss_interval = 0.01 # 平面图的XY间隔距离
     FlatImg.lambda_loss_a = 0.1 # 邻域约束
     FlatImg.lambda_loss_b = 0.001
     FlatImg.lambda_loss_c = 0.01
@@ -153,7 +153,7 @@ def train(args):
         for epoch in range(epoch_start, args.n_epoch):
             print('* lambda_loss :'+str(FlatImg.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']))
             print('* lambda_loss :'+str(FlatImg.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']), file=reslut_file)
-            loss_interval_list = 0
+            # loss_interval_list = 0
             loss_l1_list = 0
             loss_local_list = 0
             loss_edge_list = 0
@@ -163,17 +163,21 @@ def train(args):
             begin_train = time.time() #从这里正式开始训练当前epoch
             model.train()
             # feed several mini-batches in each loop
-            for i, (images, labels, interval) in enumerate(trainloader):
-                images = images.cuda()
-                labels = labels.cuda()
-                interval = interval.cuda()
+            for i, (images1, labels1, images2, labels2) in enumerate(trainloader):
+                images1 = images1.cuda()
+                labels1 = labels1.cuda()
+                images2 = images2.cuda()
+                labels2 = labels2.cuda()                
 
                 optimizer.zero_grad()
-                outputs, outputs_interval = FlatImg.model(images, is_softmax=False)
+                outputs1, outputs2 = FlatImg.model(images1,images2, is_softmax=False)
 
-                loss_l1, loss_local, loss_edge, loss_rectangles = loss_fun(outputs, labels)
-                loss_interval = loss_fun2(outputs_interval, interval)
-                loss = FlatImg.lambda_loss*(loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c) + FlatImg.lambda_loss_interval*loss_interval
+                loss_l1, loss_local, loss_edge, loss_rectangles = loss_fun(outputs1, outputs2, labels1, labels2)
+                # loss_interval = loss_fun2(outputs_interval, interval)
+                loss = loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c
+
+
+
 
                 losses.update(loss.item())
                 loss.backward()
@@ -184,7 +188,7 @@ def train(args):
 
                 # 累加相邻的20个mini-batch中各项损失
                 loss_list.append(loss.item())
-                loss_interval_list += loss_interval.item()
+                # loss_interval_list += loss_interval.item()
                 loss_l1_list += loss_l1.item()
                 loss_local_list += loss_local.item()
                 # loss_edge_list += loss_edge.item()
@@ -196,28 +200,28 @@ def train(args):
 
                     print('[{0}][{1}/{2}]\t\t'
                           '[min{3:.2f} avg{4:.4f} max{5:.2f}]\t'
-                          '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f} s:{10:.4f}]\t'
+                          '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
                           '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_interval_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len,
                         loss=losses))
                     
                     print('[{0}][{1}/{2}]\t\t'
                           '[{3:.2f} {4:.4f} {5:.2f}]\t'
-                          '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f} s:{10:.4f}]\t'
+                          '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
                           '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len, loss_interval_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len,
                         loss=losses), file=reslut_file)
                     # 清零累计的loss
                     del loss_list[:]
-                    loss_interval_list = 0
+                    # loss_interval_list = 0
                     loss_l1_list = 0
                     loss_local_list = 0
-                    loss_edge_list = 0
-                    loss_rectangles_list = 0
+                    # loss_edge_list = 0
+                    # loss_rectangles_list = 0
             FlatImg.saveModel_epoch(epoch)     # FlatImg.saveModel(epoch, save_path=path)
             trian_t = time.time()-begin_train  #从这里宣布结束训练当前epoch
             losses.reset()
@@ -261,8 +265,8 @@ if __name__ == '__main__':
     parser.add_argument('--arch', nargs='?', type=str, default='Document-Dewarping-with-Control-Points',
                         help='Architecture')
 
-    parser.add_argument('--img_shrink', nargs='?', type=int, default=None,
-                        help='short edge of the input image')
+    # parser.add_argument('--img_shrink', nargs='?', type=int, default=None,
+    #                     help='short edge of the input image')
 
     parser.add_argument('--n_epoch', nargs='?', type=int, default=300,
                         help='# of the epochs')
@@ -293,7 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='train',

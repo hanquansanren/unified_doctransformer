@@ -84,7 +84,7 @@ class SaveFlatImage(object):
         if scheme == 'test' or scheme == 'eval':
             perturbed_img_path = self.data_path_test + im_name
             perturbed_img = cv2.imread(perturbed_img_path, flags=cv2.IMREAD_COLOR)
-            perturbed_img = cv2.resize(perturbed_img, (960, 1024))
+            # perturbed_img = cv2.resize(perturbed_img, (960, 1024))
         elif scheme == 'validate' and perturbed_img is None:
             RGB_name = im_name.replace('gw', 'png')
             perturbed_img_path = self.data_path_validate + '/png/' + RGB_name
@@ -92,17 +92,25 @@ class SaveFlatImage(object):
         elif perturbed_img is not None:
             perturbed_img = perturbed_img.transpose(1, 2, 0)
 
-        fiducial_points = fiducial_points / [992, 992]
-        perturbed_img_shape = perturbed_img.shape[:2]
+        fiducial_points = fiducial_points / [992, 992] #归一化，模型输出点稀疏点本身就在992*992的范围内
+        perturbed_img_shape = perturbed_img.shape[0:2]
 
         sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
-        flat_shap = segment * [self.fiducial_point_gaps[self.col_gap], self.fiducial_point_gaps[self.row_gap]] * [self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]]
-        # flat_shap = perturbed_img_shape
+        # flat_shap = segment * [self.fiducial_point_gaps[self.col_gap], self.fiducial_point_gaps[self.row_gap]] * [self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]]
+        # 间距乘以31倍
+        flat_shap = perturbed_img_shape
+        
+        
         time_1 = time.time()
         perturbed_img_ = torch.tensor(perturbed_img.transpose(2,0,1)[None,:])
 
-        fiducial_points_ = (torch.tensor(fiducial_points.transpose(1, 0,2).reshape(-1, 2))[None,:]-0.5)*2
+        fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2))
+        fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内
+        
         rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(flat_shap))
+        
+        
+        
         time_2 = time.time()
         time_interval = time_2 - time_1
         print('TPS time: '+ str(time_interval))
@@ -228,13 +236,13 @@ class AverageMeter(object):
 class FlatImg(object):
     '''
     args:
-        self.save_flat_mage:Initialize the post-processing. Select a method in "postprocess_list".
+        dataloader
     '''
     def __init__(self, args, path, date, date_time, _re_date, model,\
                  log_file, n_classes, optimizer, \
                  model_D=None, optimizer_D=None, \
-                 loss_fn=None, loss_fn2=None, data_loader=None, data_loader_hdf5=None, dataPackage_loader = None, \
-                 data_path=None, data_path_validate=None, data_path_test=None, is_data_preproccess=True):     #, valloaderSet, v_loaderSet
+                 loss_fn=None, loss_fn2=None, dataset=None, data_loader_hdf5=None, dataPackage_loader = None, \
+                 data_path=None, data_path_validate=None, data_path_test=None, is_data_preproccess=True):  
         self.args = args
         self.path = path
         self.date = date
@@ -250,13 +258,16 @@ class FlatImg(object):
         self.optimizer_D = optimizer_D
         self.loss_fn = loss_fn
         self.loss_fn2 = loss_fn2
-        self.data_loader = data_loader
+        self.dataset = dataset
         self.data_loader_hdf5 = data_loader_hdf5
         self.dataPackage_loader = dataPackage_loader
+        self.is_data_preproccess = is_data_preproccess
+
         self.data_path = data_path
         self.data_path_validate = data_path_validate
         self.data_path_test = data_path_test
-        self.is_data_preproccess = is_data_preproccess
+
+
 
         postprocess_list = ['tps', 'interpolation']
         self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, self.data_path_validate, self.data_path_test, self.args.batch_size, self.is_data_preproccess, postprocess=postprocess_list[0], device=torch.device(self.args.device))
@@ -289,65 +300,19 @@ class FlatImg(object):
         bfreq = np.fft.fftshift(bfreq)
         return lpf*bfreq, 1-lpf
 
-    def loadTrainData(self, data_split, is_shuffle=True):
+    def loadTrainData(self, data_split):
         # bfreq,hpf=self.fdr()
-        train_dataset = self.data_loader(self.data_path, mode=data_split, img_shrink=self.args.img_shrink)
+        train_dataset = self.dataset(self.data_path, mode=data_split)
         trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 16), drop_last=True, pin_memory=True,
-                                      shuffle=is_shuffle)
+                                      shuffle=True)
         return trainloader
 
-    def loadValidateAndTestData(self, is_shuffle=True, sub_dir='shrink_512/crop/'):
-        v1_loader = self.data_loader(self.data_path_validate, split='validate', img_shrink=self.args.img_shrink, is_return_img_name=True, preproccess=self.is_data_preproccess)
-        valloader1 = data.DataLoader(v1_loader, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 8), 
-                                    pin_memory=True, shuffle=is_shuffle)
-
-        '''val sets'''
-        v_loaderSet = {
-            'v1_loader': v1_loader,
-        }
-        valloaderSet = {
-            'valloader1': valloader1,
-        }
-        # sub_dir = 'crop/crop/'
-
-        t1_loader = self.data_loader(self.data_path_test, split='test', img_shrink=self.args.img_shrink, is_return_img_name=True)
-        testloader1 = data.DataLoader(t1_loader, batch_size=self.args.batch_size, num_workers=8, 
-                                        pin_memory=True, shuffle=False)
-
-        '''test sets'''
-        t_loaderSet = {
-            't1_loader': v1_loader,
-        }
-        testloaderSet = {
-            'testloader1': testloader1,
-        }
-
-        self.valloaderSet = valloaderSet
-        self.v_loaderSet = v_loaderSet
-
-        self.testloaderSet = testloaderSet #20220531删除
-        self.t_loaderSet = t_loaderSet
-        # return v_loaderSet, valloaderSet
-
-    def loadTestData(self, is_shuffle=True):
-        t1_loader = self.data_loader(self.data_path_test, split='test', img_shrink=self.args.img_shrink, is_return_img_name=True)
-        testloader1 = data.DataLoader(t1_loader, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 8]),
+    def loadTestData(self):
+        test_dataset = self.dataset(self.data_path_test, mode='test')
+        self.testloader1 = data.DataLoader(test_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 8]),
                                       shuffle=False, pin_memory=True)
 
-        '''test sets'''
-        testloaderSet = {
-            'testloader1': testloader1,
-        }
 
-        self.testloaderSet = testloaderSet
-
-    def evalData(self, is_shuffle=True, sub_dir='shrink_512/crop/'):
-        eval_loader = self.data_loader(self.data_path_test, split='eval', img_shrink=self.args.img_shrink, is_return_img_name=True)
-        evalloader = data.DataLoader(eval_loader, batch_size=self.args.batch_size, num_workers=self.args.batch_size, pin_memory=True, \
-                                       shuffle=False)
-
-        self.evalloaderSet = evalloader
-        # return v_loaderSet, valloaderSet
 
     def saveModel_epoch(self, epoch):
         epoch += 1
@@ -367,105 +332,29 @@ class FlatImg(object):
                        i_path + '/' + self._re_date + "@" + self.date + self.date_time + "{}".format(
                            self.args.arch) + ".pkl")
 
-    def validateOrTestModelV3(self, epoch, trian_t, validate_test='v_l2', is_scaling=False):
+    def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False):
 
-        if validate_test == 'v_l4':
-            loss_segment_list = 0
-            loss_overall_list = 0
-            loss_local_list = 0
-            loss_edge_list = 0
-            loss_rectangles_list = 0
-            loss_list = []
-
+        if validate_test == 't_all':
             begin_test = time.time()
             with torch.no_grad():
-                for i_valloader, valloader in enumerate(self.valloaderSet.values()):
-                    for i_val, (images, labels, segment, im_name) in enumerate(valloader):
-                        try:
-                            # save_img_ = random.choices([True, False], weights=[1, 0])[0]
-                            save_img_ = random.choices([True, False], weights=[0.05, 0.95])[0]
-                            # save_img_ = True
+                for i_val, (images, im_name) in enumerate(self.testloader1):
+                    try:
+                        if self.args.parallel is not None:
+                            images=images.cuda()
+                        else:
+                            images=images.to(self.args.device)
+                        
+                        print(images.device)
+                        outputs, outputs_segment = self.model(images) # outputs_segment是平整图像的点间隔
+                        pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
+                        pred_segment = outputs_segment.data.round().int().cpu().numpy()
 
-                            images = images.cuda()
-                            labels = labels.cuda()
-                            segment = segment.cuda()
-
-                            outputs, outputs_segment = self.model(images)
-
-                            loss_overall, loss_local, loss_edge, loss_rectangles = self.loss_fn(outputs, labels, size_average=True)
-                            loss_segment = self.loss_fn2(outputs_segment, segment)
-
-                            loss = self.lambda_loss * (loss_overall + loss_local + loss_edge * self.lambda_loss_a + loss_rectangles * self.lambda_loss_b) + self.lambda_loss_segment * loss_segment
-                            # loss = self.lambda_loss * (loss_local + loss_rectangles + loss_edge*self.lambda_loss_a + loss_overall*self.lambda_loss_b) + self.lambda_loss_segment * loss_segment
-
-                            pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)         # (4, 1280, 1024, 2)
-                            pred_segment = outputs_segment.data.round().int().cpu().numpy()  # (4, 1280, 1024)  ==outputs.data.argmax(dim=0).cpu().numpy()
-
-                            if save_img_:
-                                self.save_flat_mage.flatByRegressWithClassiy_multiProcessV2(pred_regress,
-                                                                                          pred_segment, im_name,
-                                                                                          epoch + 1,
-                                                                                          perturbed_img=images.numpy(), scheme='validate', is_scaling=is_scaling)
-                            loss_list.append(loss.item())
-                            loss_segment_list += loss_segment.item()
-                            loss_overall_list += loss_overall.item()
-                            loss_local_list += loss_local.item()
-                            # loss_edge_list += loss_edge.item()
-                            # loss_rectangles_list += loss_rectangles.item()
-
-                        except:
-                            print('* save image validated error :'+im_name[0])
-                test_time = time.time() - begin_test
-
-                # if always_save_model:
-                #     self.saveModel(epoch, save_path=self.path)
-                list_len = len(loss_list)
-                print('train time : {trian_t:.3f}\t'
-                      'validate time : {test_time:.3f}\t'
-                      '[o:{overall_avg:.4f} l:{local_avg:.4f} e:{edge_avg:.4f} r:{rectangles_avg:.4f}\t'
-                      '[{loss_regress:.4f}  {loss_segment:.4f}]\n'.format(
-                       trian_t=trian_t, test_time=test_time,
-                       overall_avg=loss_overall_list / list_len, local_avg=loss_local_list / list_len, edge_avg=loss_edge_list / list_len, rectangles_avg=loss_rectangles_list / list_len,
-                       loss_regress=(loss_overall_list+loss_local_list+loss_edge_list) / list_len, loss_segment=loss_segment_list / list_len))
-                print('train time : {trian_t:.3f}\t'
-                      'validate time : {test_time:.3f}\t'
-                      '[o:{overall_avg:.4f} l:{local_avg:.4f} e:{edge_avg:.4f} r:{rectangles_avg:.4f}\t'
-                      '[{loss_regress:.4f}  {loss_segment:.4f}]\n'.format(
-                       trian_t=trian_t, test_time=test_time,
-                       overall_avg=loss_overall_list / list_len, local_avg=loss_local_list / list_len, edge_avg=loss_edge_list / list_len, rectangles_avg=loss_rectangles_list / list_len,
-                       loss_regress=(loss_overall_list+loss_local_list+loss_edge_list) / list_len, loss_segment=loss_segment_list / list_len), file=self.log_file)
-        elif validate_test == 't_all':
-            begin_test = time.time()
-            with torch.no_grad():
-                for i_valloader, valloader in enumerate(self.testloaderSet.values()):
-
-                    for i_val, (images, im_name) in enumerate(valloader):
-                        try:
-                            save_img_ = True
-                            # save_img_ = random.choices([True, False], weights=[1, 0])[0]
-                            # save_img_ = random.choices([True, False], weights=[0.2, 0.8])[0]
-
-                            if save_img_:
-                                if self.args.parallel is not None:
-                                    images=images.cuda()
-                                else:
-                                    images=images.to(self.args.device)
-                                
-                                # images = Variable(images)
-                                print(images.device)
-
-                                outputs, outputs_segment = self.model(images) # outputs_segment是平整图像的点间隔
-                                # outputs, outputs_segment = self.model(images, is_softmax=True)
-
-                                pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
-                                pred_segment = outputs_segment.data.round().int().cpu().numpy()  # (4, 1280, 1024)  ==outputs.data.argmax(dim=0).cpu().numpy()
-
-                                self.save_flat_mage.flatByRegressWithClassiy_multiProcessV2(pred_regress,
-                                                                                          pred_segment, im_name,
-                                                                                          epoch + 1,
-                                                                                          scheme='test', is_scaling=is_scaling)
-                        except:
-                            print('* save image tested error :' + im_name[0])
+                        self.save_flat_mage.flatByRegressWithClassiy_multiProcessV2(pred_regress,
+                                                                                    pred_segment, im_name,
+                                                                                    epoch + 1,
+                                                                                    scheme='test', is_scaling=is_scaling)
+                    except:
+                        print('* save image tested error :' + im_name[0])
                 test_time = time.time() - begin_test
 
                 print('total test time : {test_time:.3f} seconds'.format(
