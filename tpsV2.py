@@ -15,9 +15,9 @@ class createThinPlateSplineShapeTransformer(nn.Module):
             batch_I_r: rectified image [batch_size x I_channel_num x I_r_height x I_r_width]
         """
         super(createThinPlateSplineShapeTransformer, self).__init__()
-        self.f_row_num, self.f_col_num = fiducial_num
-        self.F = self.f_row_num * self.f_col_num
-        self.I_r_size = I_r_size 
+        self.f_row_num, self.f_col_num = fiducial_num # (31, 31)
+        self.F = self.f_row_num * self.f_col_num # 961
+        self.I_r_size = I_r_size  # (320, 320)
         self.device = device
         self.estimateTransformation = estimateTransformation(self.F, self.I_r_size, self.device)
 
@@ -40,8 +40,8 @@ class estimateTransformation(nn.Module):
     def __init__(self, F, I_r_size, device):
         super(estimateTransformation, self).__init__()
         self.eps = 1e-6
-        self.I_r_height, self.I_r_width = I_r_size
-        self.F = F
+        self.I_r_height, self.I_r_width = I_r_size # (320, 320)
+        self.F = F # 961
         self.C = self._build_C(self.F) 
         self.P = self._build_P(self.I_r_width, self.I_r_height)
         self.device = device

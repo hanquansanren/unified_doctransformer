@@ -14,27 +14,6 @@ import random
 from scipy.interpolate import griddata
 from tpsV2 import createThinPlateSplineShapeTransformer
 
-def adjust_position(x_min, y_min, x_max, y_max, new_shape):
-    if (new_shape[0] - (x_max - x_min)) % 2 == 0:
-        f_g_0_0 = (new_shape[0] - (x_max - x_min)) // 2
-        f_g_0_1 = f_g_0_0
-    else:
-        f_g_0_0 = (new_shape[0] - (x_max - x_min)) // 2
-        f_g_0_1 = f_g_0_0 + 1
-
-    if (new_shape[1] - (y_max - y_min)) % 2 == 0:
-        f_g_1_0 = (new_shape[1] - (y_max - y_min)) // 2
-        f_g_1_1 = f_g_1_0
-    else:
-        f_g_1_0 = (new_shape[1] - (y_max - y_min)) // 2
-        f_g_1_1 = f_g_1_0 + 1
-
-    # return f_g_0_0, f_g_0_1, f_g_1_0, f_g_1_1
-    return f_g_0_0, f_g_1_0, new_shape[0] - f_g_0_1, new_shape[1] - f_g_1_1
-
-def get_matric_edge(matric):
-    return np.concatenate((matric[:, 0, :], matric[:, -1, :], matric[0, 1:-1, :], matric[-1, 1:-1, :]), axis=0)
-
 
 class SaveFlatImage(object):
     '''
@@ -44,7 +23,7 @@ class SaveFlatImage(object):
         flatByfiducial_TPS: Thin Plate Spline, input multi-batch
         flatByfiducial_interpolation: Interpolation, input one image
     '''
-    def __init__(self, path, date, date_time, _re_date, data_path_validate, data_path_test, batch_size, preproccess=False, postprocess='tps_gpu', device=torch.device('cuda:0')):
+    def __init__(self, path, date, date_time, _re_date, data_path_validate, data_path_test, batch_size, preproccess=False, postprocess='tps', device=torch.device('cuda:0')):
         self.path = path
         self.date = date
         self.date_time = date_time
@@ -67,13 +46,6 @@ class SaveFlatImage(object):
             self.tps = createThinPlateSplineShapeTransformer(map_shape, fiducial_num=self.fiducial_num, device=self.device)
 
 
-    def location_mark(self, img, location, color=(0, 0, 255)):
-        stepSize = 0
-        for l in location.astype(np.int64).reshape(-1, 2):
-            cv2.circle(img,
-                       (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
-        return img
-
     def flatByfiducial_TPS(self, fiducial_points, segment, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
         '''
         flat_shap controls the output image resolution
@@ -94,17 +66,18 @@ class SaveFlatImage(object):
 
         fiducial_points = fiducial_points / [992, 992] #归一化，模型输出点稀疏点本身就在992*992的范围内
         perturbed_img_shape = perturbed_img.shape[0:2]
-
-        sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
+        
+        '''输出图尺寸设定'''
+        # 将预测的参考点间距，乘以31倍
         # flat_shap = segment * [self.fiducial_point_gaps[self.col_gap], self.fiducial_point_gaps[self.row_gap]] * [self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]]
-        # 间距乘以31倍
+        # 维持与输入图相同的尺寸
         flat_shap = perturbed_img_shape
         
         
         time_1 = time.time()
-        perturbed_img_ = torch.tensor(perturbed_img.transpose(2,0,1)[None,:])
-
-        fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2))
+        '''转换为tensor，并归一化'''
+        perturbed_img_ = torch.tensor(perturbed_img.transpose(2,0,1)[None,:]) # [h, w, c] -> [b, c, h, w]
+        fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [1,961,2]
         fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内
         
         rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(flat_shap))
@@ -126,6 +99,7 @@ class SaveFlatImage(object):
                                                                                          str(epoch))
         ''''''
 
+        sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
         perturbed_img_mark = self.location_mark(perturbed_img.copy(), sshape*perturbed_img_shape[::-1], (0, 0, 255))
 
         if scheme == 'test':
@@ -216,6 +190,13 @@ class SaveFlatImage(object):
                 print('Error: Other postprocess.')
                 exit()
 
+    def location_mark(self, img, location, color=(0, 0, 255)):
+        stepSize = 0
+        for l in location.astype(np.int64).reshape(-1, 2):
+            cv2.circle(img,
+                       (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
+        return img
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
@@ -270,7 +251,11 @@ class FlatImg(object):
 
 
         postprocess_list = ['tps', 'interpolation']
-        self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, self.data_path_validate, self.data_path_test, self.args.batch_size, self.is_data_preproccess, postprocess=postprocess_list[0], device=torch.device(self.args.device))
+        self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, \
+                                            self.data_path_validate, self.data_path_test, \
+                                            self.args.batch_size, \
+                                            self.is_data_preproccess, postprocess=postprocess_list[0], \
+                                            device=torch.device(self.args.device))
 
         self.validate_loss = AverageMeter()
         self.validate_loss_regress = AverageMeter()
