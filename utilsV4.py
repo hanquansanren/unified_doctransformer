@@ -80,6 +80,7 @@ class SaveFlatImage(object):
         fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [1,961,2]
         fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内
         
+        # 因为是nn.module的子类，所以这里的参数将传入类中的forward()
         rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(flat_shap))
         
         
