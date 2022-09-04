@@ -19,7 +19,7 @@ class SaveFlatImage(object):
     '''
     Post-processing and save result.
     Function:
-        flatByRegressWithClassiy_multiProcessV2: Selecting a post-processing method
+        handlebar: Selecting a post-processing method
         flatByfiducial_TPS: Thin Plate Spline, input multi-batch
         flatByfiducial_interpolation: Interpolation, input one image
     '''
@@ -42,18 +42,22 @@ class SaveFlatImage(object):
         map_shape = (320, 320)
         self.postprocess = postprocess
         
-        # TPS初始化，这里嵌套了一个类，实际上是初始化了两个类
-        if self.postprocess == 'tps':
-            self.tps = createThinPlateSplineShapeTransformer(map_shape, fiducial_num=self.fiducial_num, device=self.device)
-            # input：(320, 320), (31, 31), device
 
-    def flatByfiducial_TPS(self, fiducial_points, segment, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
+
+    def handlebar(self, pred_fiducial_points, im_name, epoch, process_pool=None, scheme='validate', is_scaling=False):
+        for i_val_i in range(pred_fiducial_points.shape[0]):
+            if self.postprocess == 'tps':
+                self.handlebar_TPS(pred_fiducial_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
+            elif self.postprocess == 'interpolation':
+                self.handlebar_interpolation(pred_fiducial_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
+            else:
+                print('Error: Other postprocess.')
+                exit()
+
+    def handlebar_TPS(self, fiducial_points, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
         '''
-        flat_shap controls the output image resolution
+            flat_shap controls the output image resolution
         '''
-        # if (scheme == 'test' or scheme == 'eval') and is_scaling:
-        #     pass
-        # else:
         if scheme == 'test' or scheme == 'eval':
             perturbed_img_path = self.data_path_test + im_name
             perturbed_img = cv2.imread(perturbed_img_path, flags=cv2.IMREAD_COLOR)
@@ -65,38 +69,46 @@ class SaveFlatImage(object):
         elif perturbed_img is not None:
             perturbed_img = perturbed_img.transpose(1, 2, 0)
 
+        
         '''输出图尺寸设定'''
         # 将预测的参考点间距，乘以31倍
         # flat_shap = segment * [self.fiducial_point_gaps[self.col_gap], self.fiducial_point_gaps[self.row_gap]] * [self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]]
-        # 维持与输入图相同的尺寸
-        perturbed_img_shape = perturbed_img.shape[0:2]
-        flat_shap = perturbed_img_shape
+        # 维持与输入图相同的尺寸 perturbed_img.shape[0:2]
+        output_img_shape=perturbed_img.shape[0:2]
+        shrunken_img_height, shrunken_img_width = perturbed_img.shape[0:2] # 因为直接处理全图会TPS计算非常缓慢，故而近计算1/25的尺寸，最后再上采样回去
+        shrunken_img_height /=5
+        shrunken_img_width /=5
+        shrunken_img_shape = [shrunken_img_height,shrunken_img_width]
+        '''初始化'''
+        # TPS初始化，这里嵌套了一个类，实际上是初始化了两个类
+        if self.postprocess == 'tps':
+            self.tps = createThinPlateSplineShapeTransformer(shrunken_img_shape, fiducial_num=self.fiducial_num, device=self.device)
+            # input：(shrunken h, shrunken w), (31, 31), device
 
-        time_1 = time.time()
+        
         '''转换为tensor，并归一化'''
         # 这里是入口参数，因此需要用叶张量，而非torch.from_numpy()
         perturbed_img_ = torch.tensor(perturbed_img.transpose(2,0,1)[None,:]) # [h, w, c] -> [b, c, h, w]
         
         
+        time_1 = time.time()
         fiducial_points = fiducial_points / [992, 992] #归一化，模型输出点稀疏点本身就在992*992的范围内
         fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [961,2]
         fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内 [961,2] -> [1,961,2]
         
         # 因为是nn.module的子类，所以这里的参数将传入类中的forward()
         # 在这一步真正实现了tps##############################################
-        rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(flat_shap))
-        # output: [1, 3, 1521, 1137], device='cuda', dtype=torch.float64
-        
-        
+        rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(output_img_shape))
+        # output: [1, 3, h, w], device='cuda', 统一dtype为torch.float64
         
         time_2 = time.time()
         time_interval = time_2 - time_1
         print('TPS time: '+ str(time_interval))
 
-        flat_img = rectified[0].cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (1521, 1137, 3), dtype('float64')
+        flatten_img = rectified[0].cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
 
         '''save'''
-        flat_img = flat_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+        flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
 
         i_path = os.path.join(self.path, self.date + self.date_time + ' @' + self._re_date,
                               str(epoch)) if self._re_date is not None else os.path.join(self.path,
@@ -105,7 +117,7 @@ class SaveFlatImage(object):
         ''''''
 
         sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
-        perturbed_img_mark = self.location_mark(perturbed_img.copy(), sshape*perturbed_img_shape[::-1], (0, 0, 255))
+        perturbed_img_mark = self.location_mark(perturbed_img.copy(), sshape*output_img_shape[::-1], (0, 0, 255))
 
         if scheme == 'test':
             i_path += '/test'
@@ -114,9 +126,9 @@ class SaveFlatImage(object):
 
         im_name = im_name.replace('gw', 'png')
         cv2.imwrite(i_path + '/mark_' + im_name, perturbed_img_mark)
-        cv2.imwrite(i_path + '/' + im_name, flat_img)
+        cv2.imwrite(i_path + '/' + im_name, flatten_img)
 
-    def flatByfiducial_interpolation(self, fiducial_points, segment, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
+    def handlebar_interpolation(self, fiducial_points, segment, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
         ''''''
         if scheme == 'test' or scheme == 'eval':
             perturbed_img_path = self.data_path_test + im_name
@@ -152,12 +164,12 @@ class SaveFlatImage(object):
         time_1 = time.time()
         # grid_z = griddata(tshape, sshape, (grid_y, grid_x), method='cubic').astype('float32')
         grid_ = griddata(tshape, sshape, (grid_y, grid_x), method='linear').astype('float32')
-        flat_img = cv2.remap(perturbed_img, grid_[:, :, 0], grid_[:, :, 1], cv2.INTER_CUBIC)
+        flatten_img = cv2.remap(perturbed_img, grid_[:, :, 0], grid_[:, :, 1], cv2.INTER_CUBIC)
         time_2 = time.time()
         time_interval = time_2 - time_1
         print('Interpolation time: '+ str(time_interval))
         ''''''
-        flat_img = flat_img.astype(np.uint8)
+        flatten_img = flatten_img.astype(np.uint8)
 
         i_path = os.path.join(self.path, self.date + self.date_time + ' @' + self._re_date,
                               str(epoch)) if self._re_date is not None else os.path.join(self.path,
@@ -172,10 +184,10 @@ class SaveFlatImage(object):
         x_ = (perturbed_img_mark.shape[0]-(x_end-x_start))//2
         y_ = (perturbed_img_mark.shape[1]-(y_end-y_start))//2
 
-        flat_img_new = np.zeros_like(perturbed_img_mark)
-        flat_img_new[x_:perturbed_img_mark.shape[0] - x_, y_:perturbed_img_mark.shape[1] - y_] = flat_img
+        flatten_img_new = np.zeros_like(perturbed_img_mark)
+        flatten_img_new[x_:perturbed_img_mark.shape[0] - x_, y_:perturbed_img_mark.shape[1] - y_] = flatten_img
         img_figure = np.concatenate(
-            (perturbed_img_mark, flat_img_new), axis=1)
+            (perturbed_img_mark, flatten_img_new), axis=1)
 
         if scheme == 'test':
             i_path += '/test'
@@ -184,16 +196,6 @@ class SaveFlatImage(object):
 
         im_name = im_name.replace('gw', 'png')
         cv2.imwrite(i_path + '/' + im_name, img_figure)
-
-    def flatByRegressWithClassiy_multiProcessV2(self, pred_fiducial_points, pred_segment, im_name, epoch, process_pool=None, perturbed_img=None, scheme='validate', is_scaling=False):
-        for i_val_i in range(pred_fiducial_points.shape[0]):
-            if self.postprocess == 'tps':
-                self.flatByfiducial_TPS(pred_fiducial_points[i_val_i], pred_segment[i_val_i], im_name[i_val_i], epoch, None if perturbed_img is None else perturbed_img[i_val_i], scheme, is_scaling)
-            elif self.postprocess == 'interpolation':
-                self.flatByfiducial_interpolation(pred_fiducial_points[i_val_i], pred_segment[i_val_i], im_name[i_val_i], epoch, None if perturbed_img is None else perturbed_img[i_val_i], scheme, is_scaling)
-            else:
-                print('Error: Other postprocess.')
-                exit()
 
     def location_mark(self, img, location, color=(0, 0, 255)):
         stepSize = 0
@@ -222,7 +224,7 @@ class AverageMeter(object):
 class FlatImg(object):
     '''
     args:
-        dataloader
+        dataset and dataloader
     '''
     def __init__(self, args, path, date, date_time, _re_date, model,\
                  log_file, n_classes, optimizer, \
@@ -255,12 +257,8 @@ class FlatImg(object):
 
 
 
-        postprocess_list = ['tps', 'interpolation']
-        self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, \
-                                            self.data_path_validate, self.data_path_test, \
-                                            self.args.batch_size, \
-                                            self.is_data_preproccess, postprocess=postprocess_list[0], \
-                                            device=torch.device(self.args.device))
+        self.postprocess_list = ['tps', 'interpolation']
+
 
         self.validate_loss = AverageMeter()
         self.validate_loss_regress = AverageMeter()
@@ -323,7 +321,12 @@ class FlatImg(object):
                            self.args.arch) + ".pkl")
 
     def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False):
-
+        
+        self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, \
+                                            self.data_path_validate, self.data_path_test, \
+                                            self.args.batch_size, \
+                                            self.is_data_preproccess, postprocess=self.postprocess_list[0], \
+                                            device=torch.device(self.args.device))
         if validate_test == 't_all':
             begin_test = time.time()
             with torch.no_grad():
@@ -334,15 +337,15 @@ class FlatImg(object):
                         else:
                             images=images.to(self.args.device)
                         
-                        print(images.device)
+                        print(images.device) 
+                        # print(images.size())
                         outputs, outputs_segment = self.model(images) # outputs_segment是平整图像的点间隔
                         pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
-                        pred_segment = outputs_segment.data.round().int().cpu().numpy()
+                        # pred_segment = outputs_segment.data.round().int().cpu().numpy()
+                        
 
-                        self.save_flat_mage.flatByRegressWithClassiy_multiProcessV2(pred_regress,
-                                                                                    pred_segment, im_name,
-                                                                                    epoch + 1,
-                                                                                    scheme='test', is_scaling=is_scaling)
+                        self.save_flat_mage.handlebar(pred_regress, im_name, epoch + 1,
+                                                    scheme='test', is_scaling=is_scaling)
                     except:
                         print('* save image tested error :' + im_name[0])
                 test_time = time.time() - begin_test
@@ -372,10 +375,9 @@ class FlatImg(object):
                                 pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
                                 pred_segment = outputs_segment.data.round().int().cpu().numpy()  # (4, 1280, 1024)  ==outputs.data.argmax(dim=0).cpu().numpy()
 
-                                self.save_flat_mage.flatByRegressWithClassiy_multiProcessV2(pred_regress,
-                                                                                          pred_segment, im_name,
-                                                                                          epoch + 1,
-                                                                                          scheme='test', is_scaling=is_scaling)
+                                self.save_flat_mage.handlebar(pred_regress, pred_segment, im_name,
+                                                              epoch + 1,
+                                                              scheme='test', is_scaling=is_scaling)
                         except:
                             print('* save image tested error :' + im_name[0])
                 test_time = time.time() - begin_test
