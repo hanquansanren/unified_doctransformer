@@ -33,18 +33,19 @@ class SaveFlatImage(object):
         self.data_path_test = data_path_test
         self.batch_size = batch_size
         self.device = device
-        self.col_gap = 0 #4
+        self.col_gap = 0 # 0
         self.row_gap = self.col_gap# col_gap + 1 if col_gap < 6 else col_gap
         # fiducial_point_gaps = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]  # POINTS NUM: 61, 31, 21, 16, 13, 11, 7, 6, 5, 4, 3, 2
         self.fiducial_point_gaps = [1, 2, 3, 5, 6, 10, 15, 30]        # POINTS NUM: 31, 16, 11, 7, 6, 4, 3, 2
         self.fiducial_point_num = [31, 16, 11, 7, 6, 4, 3, 2]
-        self.fiducial_num = self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]
+        self.fiducial_num = self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap] # 31,31
         map_shape = (320, 320)
         self.postprocess = postprocess
         
+        # TPS初始化，这里嵌套了一个类，实际上是初始化了两个类
         if self.postprocess == 'tps':
             self.tps = createThinPlateSplineShapeTransformer(map_shape, fiducial_num=self.fiducial_num, device=self.device)
-
+            # input：(320, 320), (31, 31), device
 
     def flatByfiducial_TPS(self, fiducial_points, segment, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
         '''
@@ -64,24 +65,27 @@ class SaveFlatImage(object):
         elif perturbed_img is not None:
             perturbed_img = perturbed_img.transpose(1, 2, 0)
 
-        fiducial_points = fiducial_points / [992, 992] #归一化，模型输出点稀疏点本身就在992*992的范围内
-        perturbed_img_shape = perturbed_img.shape[0:2]
-        
         '''输出图尺寸设定'''
         # 将预测的参考点间距，乘以31倍
         # flat_shap = segment * [self.fiducial_point_gaps[self.col_gap], self.fiducial_point_gaps[self.row_gap]] * [self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]]
         # 维持与输入图相同的尺寸
+        perturbed_img_shape = perturbed_img.shape[0:2]
         flat_shap = perturbed_img_shape
-        
-        
+
         time_1 = time.time()
         '''转换为tensor，并归一化'''
+        # 这里是入口参数，因此需要用叶张量，而非torch.from_numpy()
         perturbed_img_ = torch.tensor(perturbed_img.transpose(2,0,1)[None,:]) # [h, w, c] -> [b, c, h, w]
-        fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [1,961,2]
-        fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内
+        
+        
+        fiducial_points = fiducial_points / [992, 992] #归一化，模型输出点稀疏点本身就在992*992的范围内
+        fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [961,2]
+        fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内 [961,2] -> [1,961,2]
         
         # 因为是nn.module的子类，所以这里的参数将传入类中的forward()
+        # 在这一步真正实现了tps##############################################
         rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(flat_shap))
+        # output: [1, 3, 1521, 1137], device='cuda', dtype=torch.float64
         
         
         
@@ -89,10 +93,10 @@ class SaveFlatImage(object):
         time_interval = time_2 - time_1
         print('TPS time: '+ str(time_interval))
 
-        flat_img = rectified[0].cpu().numpy().transpose(1,2,0)
+        flat_img = rectified[0].cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (1521, 1137, 3), dtype('float64')
 
         '''save'''
-        flat_img = flat_img.astype(np.uint8)
+        flat_img = flat_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
 
         i_path = os.path.join(self.path, self.date + self.date_time + ' @' + self._re_date,
                               str(epoch)) if self._re_date is not None else os.path.join(self.path,

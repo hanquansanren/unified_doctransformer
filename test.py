@@ -189,7 +189,7 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP/flat/2022-06-06/2022-06-06 17:06:59 @2022-06-06/144/2022-06-06@2022-06-06 17:06:59Document-Dewarping-with-Control-Points.pkl')
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     
-    parser.add_argument('--parallel', default='0123', type=list,
+    parser.add_argument('--parallel', default='2', type=list,
                         help='choice the gpu id for parallel ')
 
     args = parser.parse_args()
