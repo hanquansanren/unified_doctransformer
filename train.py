@@ -29,7 +29,7 @@ from pathlib import Path
 # ROOT = FILE.parents[0] #获取当前目录位置
 workdir=os.getcwd()
 
-from network import FiducialPoints, DilatedResnetForFlatByFiducialPointsS2
+from network import model_handlebar, DilatedResnetForFlatByFiducialPointsS2
 
 # import utilsV3 as utils
 import utilsV4 as utils
@@ -59,7 +59,7 @@ def train(args):
 
     ''' load model '''
     n_classes = 2
-    model = FiducialPoints(n_classes=n_classes, num_filter=32, architecture=DilatedResnetForFlatByFiducialPointsS2, BatchNorm='BN', in_channels=3)     #
+    model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnetForFlatByFiducialPointsS2, BatchNorm='BN', in_channels=3)
     
     ''' load device '''
     if args.parallel is not None:
@@ -129,7 +129,7 @@ def train(args):
     # loss_fun = loss_fun_classes.loss_fn4_v5_r_3   # *
     loss_fun2 = loss_fun_classes.loss_fn_l1_loss #普通的L1 loss
     
-    ''' load data '''
+    ''' load data, dataloader, model'''
     FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
                             log_file=reslut_file, n_classes=n_classes, optimizer=optimizer, \
                             loss_fn=loss_fun, loss_fn2=loss_fun2, dataset=my_unified_dataset, \
@@ -163,21 +163,23 @@ def train(args):
             begin_train = time.time() #从这里正式开始训练当前epoch
             model.train()
             # feed several mini-batches in each loop
-            for i, (images1, labels1, images2, labels2) in enumerate(trainloader):
-                images1 = images1.cuda()
+            for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader):
+                images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
                 images2 = images2.cuda()
                 labels2 = labels2.cuda()                
 
                 optimizer.zero_grad()
-                outputs1, outputs2 = FlatImg.model(images1,images2, is_softmax=False)
+                outputs1, outputs2 = FlatImg.model(images1, images2, labels1, labels2, w_im, d_im, ref_pt, is_softmax=False)
+
+
+
+
+
 
                 loss_l1, loss_local, loss_edge, loss_rectangles = loss_fun(outputs1, outputs2, labels1, labels2)
                 # loss_interval = loss_fun2(outputs_interval, interval)
                 loss = loss_l1 + loss_local*FlatImg.lambda_loss_a + loss_edge*FlatImg.lambda_loss_b + loss_rectangles*FlatImg.lambda_loss_c
-
-
-
 
                 losses.update(loss.item())
                 loss.backward()
@@ -229,8 +231,6 @@ def train(args):
             print("Current epoch training elapsed time: ",trian_t)
             print("Total epoches training elapsed time: ", train_time.sum)
             
-            # model.eval()
-
             scheduler.step()
 
 
@@ -297,7 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='train',

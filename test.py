@@ -130,7 +130,7 @@ def test(args):
             print("No checkpoint found at '{}'".format(args.resume.name))
 
  
-    ''' load data '''
+    ''' load test data and test data'''
     FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
                             log_file=log_file, n_classes=n_classes, optimizer=optimizer, \
                             dataset=my_unified_dataset, \

@@ -605,7 +605,6 @@ class perturbed(sutils.BasePerturbed):
 		'''
 		im : distorted image   # HWC 
 		lbl : fiducial_points  # 61*61*2 
-		interval : segment     # 2*1
 		'''
 		im=np.uint8(im)
 		h=im.shape[0]*0.01
@@ -640,14 +639,14 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 		try:
 			if deform_type=='fold':
 				saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
-				repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) #随机折叠次数
+				repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) # 随机折叠次数
 				# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
-				d,lbl,itv=process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				d,lbl=process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2')).get()
 			elif deform_type=='curve':
 				saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
-				repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) #随机弯曲次数
+				repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) # 随机弯曲次数
 				# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
-				d,lbl,itv=process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				d,lbl=process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2')).get()
 			else:
 				print('error type')
 		except BaseException as err:
@@ -659,7 +658,7 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 
 	process_pool.close()
 	process_pool.join()
-	return d,lbl,itv
+	return d,lbl
 
 # if __name__ == '__main__':
 # 	# # print(mp.cpu_count())

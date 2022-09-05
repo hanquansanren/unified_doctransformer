@@ -1,7 +1,3 @@
-'''
-Guowang Xie
-from utilsV4.py
-'''
 import torch
 from torch.utils import data
 from torch.autograd import Variable, Function
@@ -17,21 +13,21 @@ from tpsV2 import createThinPlateSplineShapeTransformer
 
 class SaveFlatImage(object):
     '''
-    Post-processing and save result.
+    TPS Post-processing and save result.
     Function:
         handlebar: Selecting a post-processing method
-        flatByfiducial_TPS: Thin Plate Spline, input multi-batch
-        flatByfiducial_interpolation: Interpolation, input one image
+        handlebar_TPS: Thin Plate Spline, input multi-batch
+        handlebar_interpolation: Interpolation, input one image
     '''
-    def __init__(self, path, date, date_time, _re_date, data_path_validate, data_path_test, batch_size, preproccess=False, postprocess='tps', device=torch.device('cuda:0')):
+    def __init__(self, path, date, date_time, _re_date, data_path_validate, data_path_test, preproccess=False, postprocess='tps', device=torch.device('cuda:0')):
         self.path = path
         self.date = date
         self.date_time = date_time
         self._re_date = _re_date
         self.preproccess = preproccess
+        self.postprocess = postprocess
         self.data_path_validate =data_path_validate
         self.data_path_test = data_path_test
-        self.batch_size = batch_size
         self.device = device
         self.col_gap = 0 # 0
         self.row_gap = self.col_gap# col_gap + 1 if col_gap < 6 else col_gap
@@ -39,9 +35,6 @@ class SaveFlatImage(object):
         self.fiducial_point_gaps = [1, 2, 3, 5, 6, 10, 15, 30]        # POINTS NUM: 31, 16, 11, 7, 6, 4, 3, 2
         self.fiducial_point_num = [31, 16, 11, 7, 6, 4, 3, 2]
         self.fiducial_num = self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap] # 31,31
-        map_shape = (320, 320)
-        self.postprocess = postprocess
-        
 
 
     def handlebar(self, pred_fiducial_points, im_name, epoch, process_pool=None, scheme='validate', is_scaling=False):
@@ -56,7 +49,7 @@ class SaveFlatImage(object):
 
     def handlebar_TPS(self, fiducial_points, im_name, epoch, perturbed_img=None, scheme='validate', is_scaling=False):
         '''
-            flat_shap controls the output image resolution
+            导入原图，方便获取原图尺寸，以及进行模型参数可视化
         '''
         if scheme == 'test' or scheme == 'eval':
             perturbed_img_path = self.data_path_test + im_name
@@ -71,22 +64,21 @@ class SaveFlatImage(object):
 
         
         '''输出图尺寸设定'''
-        # 将预测的参考点间距，乘以31倍
-        # flat_shap = segment * [self.fiducial_point_gaps[self.col_gap], self.fiducial_point_gaps[self.row_gap]] * [self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap]]
-        # 维持与输入图相同的尺寸 perturbed_img.shape[0:2]
+        # 维持与输入图相同的尺寸 
         output_img_shape=perturbed_img.shape[0:2]
         shrunken_img_height, shrunken_img_width = perturbed_img.shape[0:2] # 因为直接处理全图会TPS计算非常缓慢，故而近计算1/25的尺寸，最后再上采样回去
         shrunken_img_height /=5
         shrunken_img_width /=5
         shrunken_img_shape = [shrunken_img_height,shrunken_img_width]
-        '''初始化'''
-        # TPS初始化，这里嵌套了一个类，实际上是初始化了两个类
+        
+        '''TPS类初始化'''
+        # 这里嵌套了一个类，实际上是初始化了两个类
         if self.postprocess == 'tps':
             self.tps = createThinPlateSplineShapeTransformer(shrunken_img_shape, fiducial_num=self.fiducial_num, device=self.device)
             # input：(shrunken h, shrunken w), (31, 31), device
 
         
-        '''转换为tensor，并归一化'''
+        '''将输入测试图像转换为tensor，并归一化'''
         # 这里是入口参数，因此需要用叶张量，而非torch.from_numpy()
         perturbed_img_ = torch.tensor(perturbed_img.transpose(2,0,1)[None,:]) # [h, w, c] -> [b, c, h, w]
         
@@ -95,26 +87,24 @@ class SaveFlatImage(object):
         fiducial_points = fiducial_points / [992, 992] #归一化，模型输出点稀疏点本身就在992*992的范围内
         fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [961,2]
         fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内 [961,2] -> [1,961,2]
-        
         # 因为是nn.module的子类，所以这里的参数将传入类中的forward()
         # 在这一步真正实现了tps##############################################
         rectified = self.tps(perturbed_img_.double().to(self.device), fiducial_points_.to(self.device), list(output_img_shape))
         # output: [1, 3, h, w], device='cuda', 统一dtype为torch.float64
-        
         time_2 = time.time()
         time_interval = time_2 - time_1
         print('TPS time: '+ str(time_interval))
 
-        flatten_img = rectified[0].cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+        
 
         '''save'''
+        flatten_img = rectified[0].cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
         flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
 
         i_path = os.path.join(self.path, self.date + self.date_time + ' @' + self._re_date,
                               str(epoch)) if self._re_date is not None else os.path.join(self.path,
                                                                                          self.date + self.date_time,
                                                                                          str(epoch))
-        ''''''
 
         sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
         perturbed_img_mark = self.location_mark(perturbed_img.copy(), sshape*output_img_shape[::-1], (0, 0, 255))
@@ -224,7 +214,7 @@ class AverageMeter(object):
 class FlatImg(object):
     '''
     args:
-        dataset and dataloader
+        dataset and dataloader, savemodel setting
     '''
     def __init__(self, args, path, date, date_time, _re_date, model,\
                  log_file, n_classes, optimizer, \
@@ -236,8 +226,6 @@ class FlatImg(object):
         self.date = date
         self.date_time = date_time
         self._re_date = _re_date
-        # self.valloaderSet = valloaderSet
-        # self.v_loaderSet = v_loaderSet
         self.model = model
         self.model_D = model_D
         self.log_file = log_file
@@ -254,9 +242,6 @@ class FlatImg(object):
         self.data_path = data_path
         self.data_path_validate = data_path_validate
         self.data_path_test = data_path_test
-
-
-
         self.postprocess_list = ['tps', 'interpolation']
 
 
@@ -321,24 +306,19 @@ class FlatImg(object):
                            self.args.arch) + ".pkl")
 
     def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False):
-        
+        # 初始化
         self.save_flat_mage = SaveFlatImage(self.path, self.date, self.date_time, self._re_date, \
                                             self.data_path_validate, self.data_path_test, \
-                                            self.args.batch_size, \
                                             self.is_data_preproccess, postprocess=self.postprocess_list[0], \
                                             device=torch.device(self.args.device))
         if validate_test == 't_all':
             begin_test = time.time()
-            with torch.no_grad():
+            with torch.inference_mode(mode=True):
                 for i_val, (images, im_name) in enumerate(self.testloader1):
                     try:
-                        if self.args.parallel is not None:
-                            images=images.cuda()
-                        else:
-                            images=images.to(self.args.device)
+                        images=images.to(self.args.device)
                         
                         print(images.device) 
-                        # print(images.size())
                         outputs, outputs_segment = self.model(images) # outputs_segment是平整图像的点间隔
                         pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
                         # pred_segment = outputs_segment.data.round().int().cpu().numpy()

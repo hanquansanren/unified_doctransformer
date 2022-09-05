@@ -28,7 +28,7 @@ class createThinPlateSplineShapeTransformer(nn.Module):
         '''
         batch_I:(tensor) [1, 3, 1521, 1137] 输入图像，tensor形式
         batch_F:(tensor) [1, 961, 2] 预测的warped 图像控制点，行序优先(因为采用了reshape，默认行序优先)
-        output_shape=flat_shap:(list) h,w,[1521, 1137] 用于生成regular的参考点
+        output_shape:(list) h,w,[1521, 1137] 用于生成regular的参考点
         '''
         # 这一步就完成了shrunken h*w形式的 backward mapping构建
         build_P_prime = self.estimateTransformation.build_P_prime(batch_F)  
@@ -107,7 +107,7 @@ class estimateTransformation(nn.Module):
         I_r_x = np.linspace(-1, 1, I_r_width)   # self.I_r_width (320,)
         I_r_y = np.linspace(-1, 1, I_r_height)  # self.I_r_height (320,)        
         
-        I_r_grid_x,I_r_grid_y=np.meshgrid(I_r_x, I_r_y)
+        I_r_grid_x, I_r_grid_y = np.meshgrid(I_r_x, I_r_y)
         # 最开始的版本
         # P = np.stack(np.meshgrid(I_r_x, I_r_y),axis=2).reshape(-1, 2) # (320,320,2) -> (102400,2)
         P = np.stack((I_r_grid_x,I_r_grid_y),axis=2).reshape(-1, 2) # (320,320,2) -> (102400,2) # 行序优先

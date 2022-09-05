@@ -35,9 +35,14 @@ import torch
 
 
 # # np.fill_diagonal用法
-hat_C=5*np.ones((4,4))
-np.fill_diagonal(hat_C, 1)
-print(hat_C)
+# hat_C=5*np.ones((4,4))
+# np.fill_diagonal(hat_C, 1)
+# print(hat_C)
 
 
-
+# 参考点生成
+xs = torch.linspace(0, 1020, steps=61)
+ys = torch.linspace(0, 1020, steps=61)
+x, y = torch.meshgrid(xs, ys, indexing='xy')
+P = torch.dstack([x, y])
+print(P)

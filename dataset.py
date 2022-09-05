@@ -21,18 +21,18 @@ class my_unified_dataset(data.Dataset):
 		self.root = os.path.expanduser(root) # './dataset/WarpDoc/'
 		self.mode = mode
 		# self.mean = np.array([104.00699, 116.66877, 122.67892])
-		self.images = collections.defaultdict(list)
-		self.labels = collections.defaultdict(list)
+		self.images = collections.defaultdict(list) # 用于存储image的路径，存为字典形式，字典的key是mode(train or test)
+		self.labels = collections.defaultdict(list) # 暂时没用到，因为label是直接生成的，不存在数据集里
 		self.row_gap = 1
 		self.col_gap = 1
 		# self.bfreq = bfreq
 		# self.hpf = hpf
 		datasets = ['validate', 'train']
 		self.deform_type_list=['fold', 'curve']
-		self.scan_root=os.path.join(self.root, 'digital')
-		self.wild_root=os.path.join(self.root, 'image')
+		self.scan_root=os.path.join(self.root, 'digital') # './dataset/WarpDoc/digital'
+		self.wild_root=os.path.join(self.root, 'image')   # './dataset/WarpDoc/image'
 		self.bg_path = './dataset/background/'
-		self.save_path = './output/' # 用于将合成图像打包，在训练时保留即可，并不会被用到
+		self.save_path = './output/' # 用于将合成图像打包，在训练时保留即可，一般并不会被用到
 
 
 		if self.mode == 'test':
@@ -41,15 +41,15 @@ class my_unified_dataset(data.Dataset):
 			self.images[self.mode] = sorted(img_file_list, key=lambda num: (
 			int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
 		elif self.mode in datasets:
-			img_file_list = []		
+			img_file_list = []	
 			for type in os.listdir(self.scan_root):
 				for file_idex in os.listdir(pjoin(self.scan_root, type)):
 					img_file_list.append(pjoin(type, file_idex))
 
-			self.images[self.mode] = img_file_list
+			self.images[self.mode] = img_file_list # key-value pair
 		else:
 			raise Exception('load data error')
-		# self.checkimg()
+		# self.checkimg_availability()
 
 
 
@@ -59,26 +59,26 @@ class my_unified_dataset(data.Dataset):
 	def __getitem__(self, item):
 		if self.mode == 'test':
 			im_name = self.images[self.mode][item]
-			im_path = pjoin(self.root, im_name)
-
-			im = cv2.imread(im_path, flags=cv2.IMREAD_COLOR)
+			digital_im_path = pjoin(self.root, im_name)
+			
+			im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
 			# h,w,c=im.shape
 			# if h<1024:
 			# 	im=np.pad(im,(((1024-h)//2,(1024-h)//2),(0,0),(0,0)),'constant')
 			# if w<960:
 			# 	im=np.pad(im,((0,0),((960-w)//2,(960-w)//2),(0,0)),'constant')
 			# print(im.shape)
-			im = cv2.resize(im, (992, 992), interpolation=cv2.INTER_LINEAR)
+			im = cv2.resize(im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
 			im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-			im = self.transform_im(im)
+			im = self.transform_im(im) # HWC -> CHW
 
 			return im, im_name
 
 		else: # train
-			# img = Image.open(im_path)	
 			'''load path'''			
 			im_name = self.images[self.mode][item] # 'rotate/0151.jpg'
-			im_path = pjoin(self.scan_root, im_name) # './dataset/WarpDoc/digital/rotate/0151.jpg'
+			digital_im_path = pjoin(self.scan_root, im_name) # './dataset/WarpDoc/digital/rotate/0151.jpg'
+			wild_im_path = pjoin(self.wild_root, im_name) # './dataset/WarpDoc/image/rotate/0151.jpg'
 			
 			'''choose two deform type randomly'''
 			deform_type1=np.random.choice(self.deform_type_list,p=[0.5,0.5])
@@ -86,33 +86,53 @@ class my_unified_dataset(data.Dataset):
 			deform_type2=np.random.choice(self.deform_type_list,p=[0.5,0.5])
 			print('the second deformation type is:', deform_type2)
 
-			'''get two deformation document images'''
-			d1,lbl1=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
-			d2,lbl2=get_syn_image(path=im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
-			d1=d1[:, :, ::-1] # 变成RGB通道顺序
-			d2=d2[:, :, ::-1]
-			print('finished two deformation document images')
+			# '''get two deformation document images'''
+			# d1,lbl1=get_syn_image(path=digital_im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
+			# d2,lbl2=get_syn_image(path=digital_im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
+			# # shape of d1,d2: (1024, 768, 3)
+			# # shape of lbl1,lbl2: (61, 61, 2)
+			# d1=d1[:, :, ::-1] # d1和d2为cv2生成的合成图像，这里需要转换为RGB通道顺序
+			# d2=d2[:, :, ::-1] # d1和d2为cv2生成的合成图像，这里需要转换为RGB通道顺序
+			# print('finished two deformation document images')
 
-			'''visualization point'''
-			self.check_item_vis(d1, lbl1, 1)
-			self.check_item_vis(d2, lbl2, 2)
+			# '''visualization point 1 for synthesis result'''
+			# self.check_item_vis(d1, lbl1, 1)
+			# self.check_item_vis(d2, lbl2, 2)
+
+			''' load digital and wild images pair'''
+			digital_im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
+			wild_im = cv2.imread(wild_im_path, flags=cv2.IMREAD_COLOR)
+			digital_im = cv2.resize(digital_im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
+			wild_im = cv2.resize(wild_im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
+			# digital_im = cv2.cvtColor(digital_im, cv2.COLOR_BGR2RGB)
+			# wild_im = cv2.cvtColor(wild_im, cv2.COLOR_BGR2RGB)
+			digital_im = self.transform_im(digital_im) # HWC -> BCHW
+			wild_im = self.transform_im(wild_im)       # HWC -> BCHW
+			wild=wild_im.int().numpy()
+
+			'''参考点生成'''
+			xs = torch.linspace(0, 1020, steps=61)
+			ys = torch.linspace(0, 1020, steps=61)
+			x, y = torch.meshgrid(xs, ys, indexing='xy')
+			reference_point = torch.dstack([x, y])
+			reference_point = reference_point.permute(2, 0, 1)
+
 
 
 			# im = self.resize_im1(im, self.bfreq, self.hpf)
-			'''resize and tansform to tensor'''
+			'''resize images, labels and tansform to tensor'''
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
 
+			# 两张合成图像，都resize到 (1020,1020)
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
 
-
-
-			'''visualization point'''
-			self.check_item_vis(d1, lbl1, 1)
-			self.check_item_vis(d2, lbl2, 2)
+			# '''visualization point 2 for resized synthesized image and sampled control point'''
+			# self.check_item_vis(d1, lbl1, 1)
+			# self.check_item_vis(d2, lbl2, 2)
 			
 			d1 = d1.transpose(2, 0, 1)
 			d2 = d2.transpose(2, 0, 1)
@@ -120,12 +140,12 @@ class my_unified_dataset(data.Dataset):
 			lbl2 = lbl2.transpose(2, 0, 1)
 			d1 = torch.from_numpy(d1).float()
 			lbl1 = torch.from_numpy(lbl1).float()
-			# itv1 = torch.from_numpy(itv1).float()
+
 			d2 = torch.from_numpy(d2).float()
 			lbl2 = torch.from_numpy(lbl2).float()
-			# itv2 = torch.from_numpy(itv2).float()
+
 			print('finished dataset preparation')
-			return d1, lbl1, d2, lbl2
+			return d1, lbl1, d2, lbl2, wild_im, digital_im, reference_point
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
@@ -151,10 +171,14 @@ class my_unified_dataset(data.Dataset):
 		return lbl
 
 	def fiducal_points_lbl(self, fiducial_points):
-
-		fiducial_point_gaps = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]  # POINTS NUM: 61, 31, 21, 16, 13, 11, 7, 6, 5, 4, 3, 2
-		fiducial_points = fiducial_points[::fiducial_point_gaps[self.row_gap], ::fiducial_point_gaps[self.col_gap], :]
-		# interval = interval * [fiducial_point_gaps[self.col_gap], fiducial_point_gaps[self.row_gap]]
+		'''
+		根据生成的(61,61,2)，对其进行采样
+		'''
+		# 采样步长设定，POINTS NUM: 61, 31, 21, 16, 13, 11, 7, 6, 5, 4, 3, 2
+		point_sample_step = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]  
+		# 在x和y方向，根据步长`point_sample_step[self.row_gap]`来控制控制点的采样。
+		fiducial_points = fiducial_points[::point_sample_step[self.row_gap], ::point_sample_step[self.col_gap], :] 
+		# interval = interval * [point_sample_step[self.col_gap], point_sample_step[self.row_gap]]
 		# return fiducial_points, interval
 		return fiducial_points
 
@@ -205,14 +229,14 @@ class my_unified_dataset(data.Dataset):
 	# 	# return img_rhpf
 	# 	return im
 	
-	def checkimg(self):
+	def checkimg_availability(self):
 		if self.mode == 'train' or self.mode == 'validate':
 			for im_name in self.images[self.mode]:
-				im_path = pjoin(self.scan_root, im_name)
+				digital_im_path = pjoin(self.scan_root, im_name)
 				try:
-					img = Image.open(im_path)
+					img = Image.open(digital_im_path)
 				except:
 					print("bug image:", im_name)
-					# os.remove(im_path)
+					# os.remove(digital_im_path)
 		print('all images is well prepared')
 

@@ -108,11 +108,15 @@ class ResNetV2StraightV2(nn.Module):
 
 		return out4
 
-class FiducialPoints(nn.Module):
+class model_handlebar(nn.Module):
+	'''
+	主模型入口
+	'''
 	def __init__(self, n_classes, num_filter, architecture, BatchNorm='GN', in_channels=3):
-		super(FiducialPoints, self).__init__()
+		# in_channels=3=RGB,输入图像的通道数。
+		super(model_handlebar, self).__init__()
 		self.in_channels = in_channels
-		self.n_classes = n_classes
+		self.n_classes = n_classes # segment，后续需要被取消。
 		self.num_filter = num_filter
 		if BatchNorm == 'IN':
 			BatchNorm = nn.InstanceNorm2d
@@ -121,12 +125,10 @@ class FiducialPoints(nn.Module):
 		elif BatchNorm == 'GN':
 			BatchNorm = nn.GroupNorm
 
-
-
 		self.dilated_unet = architecture(self.n_classes, self.num_filter, BatchNorm, in_channels=self.in_channels)
 
-	def forward(self, x, is_softmax=True):
-		return self.dilated_unet(x, is_softmax)
+	def forward(self, images1, images2, labels1, labels2, w_im, d_im, ref_pt, is_softmax=True):
+		return self.dilated_unet(images1, images2, labels1, labels2, w_im, d_im, ref_pt, is_softmax)
 
 ''' Dilated Resnet For Flat By Classify with Rgress   simple -2'''
 class DilatedResnetForFlatByFiducialPointsS2(nn.Module):
