@@ -1,20 +1,6 @@
 '''
 2022/6/26
 Weiguang Zhang
-
-args:
-    n_epoch:epoch values for training
-    optimizer:various optimization algorithms
-    l_rate:initial learning rate
-    resume:the path of trained model parameter after
-    data_path_train:datasets path for training
-    data_path_validate:datasets path for validating
-    data_path_test:datasets path for testing
-    output-path:output path
-    batch_size:
-    schema:test or train
-    parallel:number of gpus used, like '0', or, '0123'
-
 '''
 import os, sys
 import argparse
@@ -26,12 +12,12 @@ from pathlib import Path
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
 
-from network import FiducialPoints, DilatedResnetForFlatByFiducialPointsS2
+from network import model_handlebar, DilatedResnet
 
 # import utilsV3 as utils
 import utilsV4 as utils
 
-from dataset import my_unified_dataset
+from dataset_lmdb import my_unified_dataset
 
 
 def test(args):
@@ -57,7 +43,7 @@ def test(args):
 
     ''' load model '''
     n_classes = 2
-    model = FiducialPoints(n_classes=n_classes, num_filter=32, architecture=DilatedResnetForFlatByFiducialPointsS2, BatchNorm='BN', in_channels=3)     #
+    model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)     #
     
     ''' load device '''
     if args.parallel is not None: #
@@ -131,10 +117,8 @@ def test(args):
 
  
     ''' load test data and test data'''
-    FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, model=model, \
-                            log_file=log_file, n_classes=n_classes, optimizer=optimizer, \
-                            dataset=my_unified_dataset, \
-                            data_path=data_path, data_path_validate=data_path_validate, data_path_test=data_path_test)          # , valloaderSet=valloaderSet, v_loaderSet=v_loaderSet
+    FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
+                            data_path=data_path, data_path_validate=None, data_path_test=data_path_test) 
     FlatImg.loadTestData()
     epoch = checkpoint['epoch'] if args.resume is not None else 0
 

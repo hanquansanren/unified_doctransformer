@@ -216,24 +216,15 @@ class FlatImg(object):
     args:
         dataset and dataloader, savemodel setting
     '''
-    def __init__(self, args, path, date, date_time, _re_date, model,\
-                 log_file, n_classes, optimizer, \
-                 model_D=None, optimizer_D=None, \
-                 loss_fn=None, loss_fn2=None, dataset=None, data_loader_hdf5=None, dataPackage_loader = None, \
+    def __init__(self, args, path, date, date_time, _re_date,
+                 dataset=None, data_loader_hdf5=None, dataPackage_loader = None, \
                  data_path=None, data_path_validate=None, data_path_test=None, is_data_preproccess=True):  
         self.args = args
         self.path = path
         self.date = date
         self.date_time = date_time
         self._re_date = _re_date
-        self.model = model
-        self.model_D = model_D
-        self.log_file = log_file
-        self.n_classes = n_classes
-        self.optimizer = optimizer
-        self.optimizer_D = optimizer_D
-        self.loss_fn = loss_fn
-        self.loss_fn2 = loss_fn2
+        
         self.dataset = dataset
         self.data_loader_hdf5 = data_loader_hdf5
         self.dataPackage_loader = dataPackage_loader
@@ -245,14 +236,14 @@ class FlatImg(object):
         self.postprocess_list = ['tps', 'interpolation']
 
 
-        self.validate_loss = AverageMeter()
-        self.validate_loss_regress = AverageMeter()
-        self.validate_loss_segment = AverageMeter()
-        self.lambda_loss = 1
-        self.lambda_loss_segment = 1
-        self.lambda_loss_a = 1
-        self.lambda_loss_b = 1
-        self.lambda_loss_c = 1
+        # self.validate_loss = AverageMeter()
+        # self.validate_loss_regress = AverageMeter()
+        # self.validate_loss_segment = AverageMeter()
+        # self.lambda_loss = 1
+        # self.lambda_loss_segment = 1
+        # self.lambda_loss_a = 1
+        # self.lambda_loss_b = 1
+        # self.lambda_loss_c = 1
 
 
     def fdr(self):
@@ -276,8 +267,9 @@ class FlatImg(object):
     def loadTrainData(self, data_split):
         # bfreq,hpf=self.fdr()
         train_dataset = self.dataset(self.data_path, mode=data_split)
-        trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min(self.args.batch_size, 16), drop_last=True, pin_memory=True,
+        trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=8, drop_last=True, pin_memory=True,
                                       shuffle=True)
+        # =min([self.args.batch_size,1])
         return trainloader
 
     def loadTestData(self):
@@ -319,7 +311,7 @@ class FlatImg(object):
                         images=images.to(self.args.device)
                         
                         print(images.device) 
-                        outputs, outputs_segment = self.model(images) # outputs_segment是平整图像的点间隔
+                        outputs = self.model(images) # outputs_segment是平整图像的点间隔
                         pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
                         # pred_segment = outputs_segment.data.round().int().cpu().numpy()
                         
@@ -349,13 +341,12 @@ class FlatImg(object):
                             if save_img_:
                                 images = images.cuda()
 
-                                outputs, outputs_segment = self.model(images)
-                                # outputs, outputs_segment = self.model(images, is_softmax=True)
+                                outputs= self.model(images)
 
                                 pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
-                                pred_segment = outputs_segment.data.round().int().cpu().numpy()  # (4, 1280, 1024)  ==outputs.data.argmax(dim=0).cpu().numpy()
+                                # pred_segment = outputs_segment.data.round().int().cpu().numpy()  # (4, 1280, 1024)  ==outputs.data.argmax(dim=0).cpu().numpy()
 
-                                self.save_flat_mage.handlebar(pred_regress, pred_segment, im_name,
+                                self.save_flat_mage.handlebar(pred_regress, im_name,
                                                               epoch + 1,
                                                               scheme='test', is_scaling=is_scaling)
                         except:

@@ -15,9 +15,9 @@ import time
 from PIL import Image
 import threading
 import multiprocessing as mp
-# from multiprocessing import Pool
+from multiprocessing import Pool
 # 务必将上述代码的multiprocess改成billiard，另一个多线程库
-from billiard import Pool
+# from billiard import Pool
 import re
 import cv2
 import synthesis_code.utils as sutils
@@ -31,7 +31,7 @@ class perturbed(sutils.BasePerturbed):
 		self.save_suffix = save_suffix
 
 	def save_img(self, fold_curve='fold', repeat_time=4, fiducial_points = 61, relativeShift_position='relativeShift_v2'):
-
+		error_flag=0
 		origin_img = cv2.imread(self.path, flags=cv2.IMREAD_COLOR)
 		base_img_bound = [1024, 768]
 		input_image_height = origin_img.shape[0] # H
@@ -71,7 +71,7 @@ class perturbed(sutils.BasePerturbed):
 		# plt.savefig('./predict.png')
 
 		# enlarge_img_shrink = [512*4, 512*4]
-		enlarge_img_shrink = [2048, 2024]
+		enlarge_img_shrink = [2048, 2048]
 		bg_img = './dataset/background/' + random.choice(self.bg_img_list)
 		perturbed_bg_img = cv2.imread(bg_img, flags=cv2.IMREAD_COLOR)
 		if flag==1:
@@ -390,10 +390,12 @@ class perturbed(sutils.BasePerturbed):
 				break
 
 		if perturbed_x_min == 0 or perturbed_x_max == self.new_shape[0] or perturbed_y_min == self.new_shape[1] or perturbed_y_max == self.new_shape[1]:
-			raise Exception('clip error')
+			raise Exception('clip error1')
 
 		if perturbed_x_max - perturbed_x_min < scaled_image_height//2 or perturbed_y_max - perturbed_y_min < scaled_image_width//2:
-			raise Exception('clip error')
+			# raise Exception('clip error2')
+			error_flag=1
+			print("clip error2 here")
 
 
 		perfix_ = self.save_suffix
@@ -579,8 +581,10 @@ class perturbed(sutils.BasePerturbed):
 		test visualization here
 		###################################################
 		'''
-		# self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
-		
+		if error_flag==1:
+			self.check_vis(0, self.synthesis_perturbed_color[:, :, :3], fiducial_points_coordinate, np.array((segment_x, segment_y)))
+			error_flag=0
+			print("error image has been visualized")
 
 		# cv2.imwrite(self.save_path + 'png/' + perfix_ + '_' + fold_curve + '.png', self.synthesis_perturbed_color[:, :, :3])
 		# with open(self.save_path+'color/'+perfix_+'_'+fold_curve+'.gw', 'wb') as f:
@@ -632,7 +636,7 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 	global begin_train
 	begin_train = time.time()
 	fiducial_points = 61	# 31
-	process_pool = Pool(18)
+	# process_pool = Pool(33)
 
 	save_suffix = str.split(path, '/')[-2]+str.split(path, '/')[-1][0:4] # 'new'
 	for m_n in range(10):
@@ -641,12 +645,16 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 				saveFold = perturbed(path, all_bgImg_idx, save_path, save_suffix)
 				repeat_time = min(max(round(np.random.normal(12, 4)), 1), 18) # 随机折叠次数
 				# repeat_time = min(max(round(np.random.normal(8, 4)), 1), 12)	# random.randint(1, 2)		# min(max(round(np.random.normal(8, 4)), 1), 12)
-				d,lbl=process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				# d,lbl=process_pool.apply_async(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				# d,lbl=process_pool.apply(func=saveFold.save_img, args=('fold', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				d,lbl=saveFold.save_img('fold', repeat_time, fiducial_points, 'relativeShift_v2')
 			elif deform_type=='curve':
 				saveCurve = perturbed(path, all_bgImg_idx, save_path, save_suffix)	
 				repeat_time = min(max(round(np.random.normal(8, 4)), 1), 13) # 随机弯曲次数
 				# repeat_time = min(max(round(np.random.normal(6, 4)), 1), 10)
-				d,lbl=process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				# d,lbl=process_pool.apply_async(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				# d,lbl=process_pool.apply(func=saveCurve.save_img, args=('curve', repeat_time, fiducial_points, 'relativeShift_v2')).get()
+				d,lbl=saveCurve.save_img('curve', repeat_time, fiducial_points, 'relativeShift_v2')
 			else:
 				print('error type')
 		except BaseException as err:
@@ -656,8 +664,8 @@ def get_syn_image(path, bg_path, save_path, deform_type):
 		break
 	# print('end')
 
-	process_pool.close()
-	process_pool.join()
+	# process_pool.close()
+	# process_pool.join()
 	return d,lbl
 
 # if __name__ == '__main__':

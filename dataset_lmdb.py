@@ -14,109 +14,90 @@ import cv2
 from synthesis_code.perturbed_images_generation_multiProcess import get_syn_image
 from torch.utils import data
 import time
-
+import lmdb
 
 class my_unified_dataset(data.Dataset):
 	def __init__(self, root, mode='train', bfreq=None,hpf= None):
-		self.root = os.path.expanduser(root) # './dataset/WarpDoc/'
-		self.mode = mode
-		# self.mean = np.array([104.00699, 116.66877, 122.67892])
-		self.images = collections.defaultdict(list) # 用于存储image的路径，存为字典形式，字典的key是mode(train or test)
+		self.root = os.path.expanduser(root) # './dataset/train.lmdb/'
+		self.mode = mode # 'train'
+		self.image_set = collections.defaultdict(dict) # 用于存储image的路径，存为字典形式，字典的key是mode(train or test)
 		self.labels = collections.defaultdict(list) # 暂时没用到，因为label是直接生成的，不存在数据集里
 		self.row_gap = 1
 		self.col_gap = 1
-		# self.bfreq = bfreq
-		# self.hpf = hpf
-		datasets = ['validate', 'train']
+		datasets_mode = ['validate', 'train']
 		self.deform_type_list=['fold', 'curve']
-		self.scan_root=os.path.join(self.root, 'digital') # './dataset/WarpDoc/digital'
-		self.wild_root=os.path.join(self.root, 'image')   # './dataset/WarpDoc/image'
-		self.bg_path = './dataset/background/'
-		self.save_path = './output/' # 用于将合成图像打包，在训练时保留即可，一般并不会被用到
+		# self.scan_root=os.path.join(self.root, 'digital') # './dataset/WarpDoc/digital'
+		# self.wild_root=os.path.join(self.root, 'image')   # './dataset/WarpDoc/image'
 
+		self.model_input_size = (992, 992) # (h,w) 31*32=992, 61*16=976
 
 		if self.mode == 'test':
 			img_file_list = os.listdir(pjoin(self.root))
-			self.images[self.mode] = img_file_list
-			self.images[self.mode] = sorted(img_file_list, key=lambda num: (
+			self.image_set[self.mode] = img_file_list
+			self.image_set[self.mode] = sorted(img_file_list, key=lambda num: (
 			int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
-		elif self.mode in datasets:
-			img_file_list = []	
-			for type in os.listdir(self.scan_root):
-				for file_idex in os.listdir(pjoin(self.scan_root, type)):
-					img_file_list.append(pjoin(type, file_idex))
+		elif self.mode in datasets_mode:
+			# img_file_list = []	
+			# for type in os.listdir(self.scan_root):
+			# 	for file_idex in os.listdir(pjoin(self.scan_root, type)):
+			# 		img_file_list.append(pjoin(type, file_idex))
 
-			self.images[self.mode] = img_file_list # key-value pair
+			# self.image_set[self.mode] = img_file_list # key-value pair
+
+			self.env = lmdb.open(self.root)
+			self.txn = self.env.begin()
+			print("ok")
+			key_set = []
+			for self.idx, (key, value) in enumerate(self.txn.cursor()):
+				print(key, type(value))
+				key_set.append(key)
+				if ((self.idx+1)%4)==0:
+					self.image_set[self.mode][key.decode().split("_")[2]]=key_set
+					key_set = []
+			print("finished data")
 		else:
 			raise Exception('load data error')
 		# self.checkimg_availability()
 
-
-
-	def __len__(self):
-		return len(self.images[self.mode])
-
 	def __getitem__(self, item):
 		if self.mode == 'test':
-			im_name = self.images[self.mode][item]
+			im_name = self.image_set[self.mode][item]
 			digital_im_path = pjoin(self.root, im_name)
-			
 			im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
-			# h,w,c=im.shape
-			# if h<1024:
-			# 	im=np.pad(im,(((1024-h)//2,(1024-h)//2),(0,0),(0,0)),'constant')
-			# if w<960:
-			# 	im=np.pad(im,((0,0),((960-w)//2,(960-w)//2),(0,0)),'constant')
-			# print(im.shape)
-			im = cv2.resize(im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
+			im = cv2.resize(im, self.model_input_size, interpolation=cv2.INTER_LINEAR)
 			im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-			im = self.transform_im(im) # HWC -> CHW
-
-			return im, im_name
-
+			im = self.transform_im(im) # HWC -> BCHW 
+			return im, im_name # 这里的im用于输入模型，获得预测的控制点，并不用于后续的结果保存
 		else: # train
-			'''load path'''			
-			im_name = self.images[self.mode][item] # 'rotate/0151.jpg'
-			digital_im_path = pjoin(self.scan_root, im_name) # './dataset/WarpDoc/digital/rotate/0151.jpg'
-			wild_im_path = pjoin(self.wild_root, im_name) # './dataset/WarpDoc/image/rotate/0151.jpg'
-			
-			'''choose two deform type randomly'''
-			deform_type1=np.random.choice(self.deform_type_list,p=[0.5,0.5])
-			print('the first deformation type is:', deform_type1)
-			deform_type2=np.random.choice(self.deform_type_list,p=[0.5,0.5])
-			print('the second deformation type is:', deform_type2)
-
-			# '''get two deformation document images'''
-			# d1,lbl1=get_syn_image(path=digital_im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type1)
-			# d2,lbl2=get_syn_image(path=digital_im_path, bg_path=self.bg_path,save_path=self.save_path,deform_type=deform_type2)
-			# # shape of d1,d2: (1024, 768, 3)
-			# # shape of lbl1,lbl2: (61, 61, 2)
-			# d1=d1[:, :, ::-1] # d1和d2为cv2生成的合成图像，这里需要转换为RGB通道顺序
-			# d2=d2[:, :, ::-1] # d1和d2为cv2生成的合成图像，这里需要转换为RGB通道顺序
-			# print('finished two deformation document images')
+			item=str(item)	
+			im_set_key_list = self.image_set[self.mode][item] 
+			# key '0' ~ '850'
+			# value: [b'0_0000_2_d1', b'0_0000_2_d2', b'0_0000_2_di', b'0_0000_2_w1']
+			d1,lbl1,d2,lbl2,di,w1 = self.read_img_lmdb(self.env, im_set_key_list)
+			print("get data successful")
 
 			# '''visualization point 1 for synthesis result'''
 			# self.check_item_vis(d1, lbl1, 1)
 			# self.check_item_vis(d2, lbl2, 2)
 
 			''' load digital and wild images pair'''
-			digital_im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
-			wild_im = cv2.imread(wild_im_path, flags=cv2.IMREAD_COLOR)
-			digital_im = cv2.resize(digital_im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
-			wild_im = cv2.resize(wild_im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
+			# digital_im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
+			# wild_im = cv2.imread(wild_im_path, flags=cv2.IMREAD_COLOR)
+			# digital_im = cv2.resize(digital_im, self.model_input_size, interpolation=cv2.INTER_LINEAR)
+			# wild_im = cv2.resize(wild_im, self.model_input_size, interpolation=cv2.INTER_LINEAR)
 			# digital_im = cv2.cvtColor(digital_im, cv2.COLOR_BGR2RGB)
 			# wild_im = cv2.cvtColor(wild_im, cv2.COLOR_BGR2RGB)
-			digital_im = self.transform_im(digital_im) # HWC -> BCHW
-			wild_im = self.transform_im(wild_im)       # HWC -> BCHW
-			wild=wild_im.int().numpy()
+			# digital_im = self.transform_im(digital_im) # HWC -> BCHW
+			# wild_im = self.transform_im(wild_im)       # HWC -> BCHW
+			# # wild=np.uint8(wild_im.int().numpy().transpose(1,2,0))
 
 			'''参考点生成'''
-			xs = torch.linspace(0, 1020, steps=61)
-			ys = torch.linspace(0, 1020, steps=61)
+			xs = torch.linspace(0, self.model_input_size[1], steps=61)
+			ys = torch.linspace(0, self.model_input_size[0], steps=61)
 			x, y = torch.meshgrid(xs, ys, indexing='xy')
 			reference_point = torch.dstack([x, y])
-			reference_point = reference_point.permute(2, 0, 1)
-
+			reference_point = reference_point.permute(2, 0, 1) # (2,61,61)->(2,61,61)
+			reference_point = self.fiducal_points_lbl(reference_point)
 
 
 			# im = self.resize_im1(im, self.bfreq, self.hpf)
@@ -126,7 +107,7 @@ class my_unified_dataset(data.Dataset):
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
 
-			# 两张合成图像，都resize到 (1020,1020)
+			# 两张合成图像，都resize到 (992,992)
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
 
@@ -140,12 +121,15 @@ class my_unified_dataset(data.Dataset):
 			lbl2 = lbl2.transpose(2, 0, 1)
 			d1 = torch.from_numpy(d1).float()
 			lbl1 = torch.from_numpy(lbl1).float()
-
 			d2 = torch.from_numpy(d2).float()
 			lbl2 = torch.from_numpy(lbl2).float()
 
 			print('finished dataset preparation')
 			return d1, lbl1, d2, lbl2, wild_im, digital_im, reference_point
+
+	def __len__(self):
+		print(len(range(int((self.idx+1)/4))))
+		return len(range(int((self.idx+1)/4)))
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
@@ -155,7 +139,7 @@ class my_unified_dataset(data.Dataset):
 
 	def resize_im0(self, im):
 		try:
-			im = cv2.resize(im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
+			im = cv2.resize(im, self.model_input_size, interpolation=cv2.INTER_LINEAR) 
 			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
 		except:
 			pass
@@ -166,7 +150,7 @@ class my_unified_dataset(data.Dataset):
 	def resize_lbl(self, lbl, image):
 		h=image.shape[0]
 		w=image.shape[1]
-		lbl = lbl/[w, h]*[1020, 1020]
+		lbl = lbl/[w, h]*[992, 992]
 		# lbl = lbl/[960, 1024]*[496, 496]
 		return lbl
 
@@ -182,8 +166,24 @@ class my_unified_dataset(data.Dataset):
 		# return fiducial_points, interval
 		return fiducial_points
 
-
-
+	def read_img_lmdb(self, env, key_list):
+		txn = env.begin(write=False)
+		if key_list[0].decode()[-2:]=='d1' and key_list[1].decode()[-2:]=='d2' and key_list[2].decode()[-2:]=='di' and key_list[3].decode()[-2:]=='w1':
+			value1 = txn.get(key_list[0])
+			value1 = pickle.loads(value1)
+			d1 = value1['image'] # np.uint8
+			lbl1 = value1['label'] # np.float64
+			value2 = txn.get(key_list[1])
+			value2 = pickle.loads(value2)
+			d2 = value2['image']
+			lbl2 = value2['label']
+			value3 = txn.get(key_list[2])
+			value3 = pickle.loads(value3)
+			di = value3['image']
+			value4 = txn.get(key_list[3])
+			value4 = pickle.loads(value4)
+			w1 = value4['image']
+		return d1,lbl1,d2,lbl2,di,w1
 
 
 
@@ -231,7 +231,7 @@ class my_unified_dataset(data.Dataset):
 	
 	def checkimg_availability(self):
 		if self.mode == 'train' or self.mode == 'validate':
-			for im_name in self.images[self.mode]:
+			for im_name in self.image_set[self.mode]:
 				digital_im_path = pjoin(self.scan_root, im_name)
 				try:
 					img = Image.open(digital_im_path)

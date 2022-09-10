@@ -43,6 +43,14 @@ class Losses(object):
 
         self.fiducial_point_gaps = [2, 3, 4, 5, 6, 10, 12, 15, 20, 30]
         self.fiducial_point_gaps_v2 = [2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]
+        
+        self.lambda_loss = 1
+        self.lambda_loss_a = 1
+        self.lambda_loss_b = 1
+        self.lambda_loss_c = 1
+        self.fourier_loss_a = 1
+        self.fourier_loss_b = 1
+        self.fourier_loss_c = 1
 
     def line_cross(self, input, target, size_average=False):
 
@@ -91,31 +99,31 @@ class Losses(object):
         return loss_local, loss_rectangles
 
 
-    def loss_fn4_v5(self, input, target, size_average=False):
-        n, c, h, w = input.size()
+    # def loss_fn4_v5(self, input, target, size_average=False):
+    #     n, c, h, w = input.size()
 
-        # n_ = n*c*h*w
+    #     # n_ = n*c*h*w
 
-        i_t = target - input
+    #     i_t = target - input
 
-        '''one'''
-        loss_l1 = F.smooth_l1_loss(input, target, size_average=size_average)
+    #     '''one'''
+    #     loss_l1 = F.smooth_l1_loss(input, target, size_average=size_average)
 
-        '''two'''
-        loss_local = torch.mean(torch.pow(F.conv2d(F.pad(i_t, (1, 1, 1, 1), mode='replicate'), self.kernel, padding=0, groups=2) - i_t*5, 2))
+    #     '''two'''
+    #     loss_local = torch.mean(torch.pow(F.conv2d(F.pad(i_t, (1, 1, 1, 1), mode='replicate'), self.kernel, padding=0, groups=2) - i_t*5, 2))
 
-        '''three   --weak'''
-        loss_edge_a = F.mse_loss(input[:, :, 0, :], target[:, :, 0, :], size_average=size_average)
-        loss_edge_b = F.mse_loss(input[:, :, h-1, :], target[:, :, h-1, :], size_average=size_average)
-        loss_edge_c = F.mse_loss(input[:, :, :, 0], target[:, :, :, 0], size_average=size_average)
-        loss_edge_d = F.mse_loss(input[:, :, :, w-1], target[:, :, :, w-1], size_average=size_average)
-        loss_edge = loss_edge_a+loss_edge_b+loss_edge_c+loss_edge_d
+    #     '''three   --weak'''
+    #     loss_edge_a = F.mse_loss(input[:, :, 0, :], target[:, :, 0, :], size_average=size_average)
+    #     loss_edge_b = F.mse_loss(input[:, :, h-1, :], target[:, :, h-1, :], size_average=size_average)
+    #     loss_edge_c = F.mse_loss(input[:, :, :, 0], target[:, :, :, 0], size_average=size_average)
+    #     loss_edge_d = F.mse_loss(input[:, :, :, w-1], target[:, :, :, w-1], size_average=size_average)
+    #     loss_edge = loss_edge_a+loss_edge_b+loss_edge_c+loss_edge_d
 
-        '''four'''
-        loss_rectangle = self.line_cross(input, target, size_average)
+    #     '''four'''
+    #     loss_rectangle = self.line_cross(input, target, size_average)
 
 
-        return loss_l1, loss_local, loss_edge, loss_rectangle
+    #     return loss_l1, loss_local, loss_edge, loss_rectangle
 
     def loss_fn4_v5_r_4(self, input, target, reduction='mean'):
         i_t = target - input
