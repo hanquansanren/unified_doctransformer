@@ -119,15 +119,14 @@ def train(args):
     loss_instance.lambda_loss_c = 0.01
 
     ''' load data, dataloader'''
-    FlatImg = utils.FlatImg(args=args, path=path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
-                            data_path=data_path, data_path_validate=None, data_path_test=data_path_test) 
+    FlatImg = utils.FlatImg(args = args, path=path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
+                            data_path = data_path, data_path_validate=None, data_path_test=data_path_test, \
+                            model = model, optimizer = optimizer) 
     
     trainloader = FlatImg.loadTrainData(data_split='train') # dataset初始化
     trainloader_len = len(trainloader)
     print("Total number of mini-batch in each epoch: ", trainloader_len)
     
-
-
     if args.schema == 'train':
         train_time = AverageMeter()
         for epoch in range(epoch_start, args.n_epoch):
@@ -154,8 +153,6 @@ def train(args):
                 optimizer.zero_grad()
                 outputs1, outputs2 = model(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
                 # outputs1和outputs2分别是是D1和D2的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-
-
 
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
                 loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
@@ -245,7 +242,7 @@ if __name__ == '__main__':
     # parser.add_argument('--img_shrink', nargs='?', type=int, default=None,
     #                     help='short edge of the input image')
 
-    parser.add_argument('--n_epoch', nargs='?', type=int, default=300,
+    parser.add_argument('--n_epoch', nargs='?', type=int, default=200,
                         help='# of the epochs')
 
     parser.add_argument('--optimizer', type=str, default='adam',
@@ -258,8 +255,8 @@ if __name__ == '__main__':
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
 
-    # './synthesis_code'   './dataset/WarpDoc'
-    parser.add_argument('--data_path_train', default='./dataset/train.lmdb', type=str,
+    # './synthesis_code'   './dataset/WarpDoc'  './dataset/warp0.lmdb' './dataset/train.lmdb'
+    parser.add_argument('--data_path_train', default='./dataset/warp0.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
     # parser.add_argument('--data_path_validate', default=ROOT / 'dataset/fiducial1024/fiducial1024/fiducial1024_v1/validate/', type=str,
@@ -274,20 +271,17 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
     '''batch size'''
-    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=3,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='train',
                         help='train or test')       # train  validate
 
     
-    # parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP/flat/2022-06-27/2022-06-27 16:30:17 @2022-06-06/104/2022-06-06@2022-06-27 16:30:17Document-Dewarping-with-Control-Points.pkl')
+    parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP2/flat/2022-09-13/2022-09-13 12:46:46 @2022-09-13/9/2022-09-13@2022-09-13 12:46:46Document-Dewarping-with-Control-Points.pkl')
 
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
-
-
-
 
     args = parser.parse_args()
 

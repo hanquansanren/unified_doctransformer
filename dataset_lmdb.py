@@ -21,7 +21,6 @@ class my_unified_dataset(data.Dataset):
 		self.root = os.path.expanduser(root) # './dataset/train.lmdb/'
 		self.mode = mode # 'train'
 		self.image_set = collections.defaultdict(dict) # 用于存储image的路径，存为字典形式，字典的key是mode(train or test)
-		self.labels = collections.defaultdict(list) # 暂时没用到，因为label是直接生成的，不存在数据集里
 		self.row_gap = 1
 		self.col_gap = 1
 		datasets_mode = ['validate', 'train']
@@ -37,19 +36,11 @@ class my_unified_dataset(data.Dataset):
 			self.image_set[self.mode] = sorted(img_file_list, key=lambda num: (
 			int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
 		elif self.mode in datasets_mode:
-			# img_file_list = []	
-			# for type in os.listdir(self.scan_root):
-			# 	for file_idex in os.listdir(pjoin(self.scan_root, type)):
-			# 		img_file_list.append(pjoin(type, file_idex))
-
-			# self.image_set[self.mode] = img_file_list # key-value pair
-
 			self.env = lmdb.open(self.root)
 			self.txn = self.env.begin()
-			print("ok")
 			key_set = []
 			for self.idx, (key, value) in enumerate(self.txn.cursor()):
-				print(key, type(value))
+				# print(key)
 				key_set.append(key)
 				if ((self.idx+1)%4)==0:
 					self.image_set[self.mode][key.decode().split("_")[2]]=key_set
@@ -69,35 +60,28 @@ class my_unified_dataset(data.Dataset):
 			im = self.transform_im(im) # HWC -> BCHW 
 			return im, im_name # 这里的im用于输入模型，获得预测的控制点，并不用于后续的结果保存
 		else: # train
-			item=str(item)	
-			im_set_key_list = self.image_set[self.mode][item] 
+			im_set_key_list = self.image_set[self.mode][str(item)] 
 			# key '0' ~ '850'
 			# value: [b'0_0000_2_d1', b'0_0000_2_d2', b'0_0000_2_di', b'0_0000_2_w1']
-			d1,lbl1,d2,lbl2,di,w1 = self.read_img_lmdb(self.env, im_set_key_list)
-			print("get data successful")
+			d1, lbl1, d2, lbl2, di, w1 = self.read_img_lmdb(self.env, im_set_key_list)
+			print("get data from lmdb successfully")
+
 
 			# '''visualization point 1 for synthesis result'''
 			# self.check_item_vis(d1, lbl1, 1)
 			# self.check_item_vis(d2, lbl2, 2)
-
-			''' load digital and wild images pair'''
-			# digital_im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
-			# wild_im = cv2.imread(wild_im_path, flags=cv2.IMREAD_COLOR)
-			# digital_im = cv2.resize(digital_im, self.model_input_size, interpolation=cv2.INTER_LINEAR)
-			# wild_im = cv2.resize(wild_im, self.model_input_size, interpolation=cv2.INTER_LINEAR)
-			# digital_im = cv2.cvtColor(digital_im, cv2.COLOR_BGR2RGB)
-			# wild_im = cv2.cvtColor(wild_im, cv2.COLOR_BGR2RGB)
-			# digital_im = self.transform_im(digital_im) # HWC -> BCHW
-			# wild_im = self.transform_im(wild_im)       # HWC -> BCHW
-			# # wild=np.uint8(wild_im.int().numpy().transpose(1,2,0))
+			# self.check_item_vis(di, None, 3)
+			# self.check_item_vis(w1, None, 4)
 
 			'''参考点生成'''
-			xs = torch.linspace(0, self.model_input_size[1], steps=61)
-			ys = torch.linspace(0, self.model_input_size[0], steps=61)
-			x, y = torch.meshgrid(xs, ys, indexing='xy')
-			reference_point = torch.dstack([x, y])
-			reference_point = reference_point.permute(2, 0, 1) # (2,61,61)->(2,61,61)
-			reference_point = self.fiducal_points_lbl(reference_point)
+			# xs = torch.linspace(0, self.model_input_size[1], steps=61)
+			# ys = torch.linspace(0, self.model_input_size[0], steps=61)
+			# x, y = torch.meshgrid(xs, ys, indexing='xy')
+			# reference_point = torch.dstack([x, y])
+			xs = np.linspace(0, self.model_input_size[1], num=61)
+			ys = np.linspace(0, self.model_input_size[0], num=61)
+			x, y = np.meshgrid(xs, ys, indexing='xy')
+			reference_point = np.dstack([x, y])			
 
 
 			# im = self.resize_im1(im, self.bfreq, self.hpf)
@@ -106,29 +90,41 @@ class my_unified_dataset(data.Dataset):
 			lbl2 = self.resize_lbl(lbl2,d2)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
+			reference_point = self.fiducal_points_lbl(reference_point)
 
 			# 两张合成图像，都resize到 (992,992)
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
+			di=self.resize_im0(di)
+			w1=self.resize_im0(w1)
 
 			# '''visualization point 2 for resized synthesized image and sampled control point'''
-			# self.check_item_vis(d1, lbl1, 1)
-			# self.check_item_vis(d2, lbl2, 2)
+			# self.check_item_vis(d1, lbl1, 25)
+			# self.check_item_vis(d2, lbl2, 26)
+			# self.check_item_vis(di, reference_point, 27)
+			# self.check_item_vis(w1, None, 28)
 			
 			d1 = d1.transpose(2, 0, 1)
 			d2 = d2.transpose(2, 0, 1)
 			lbl1 = lbl1.transpose(2, 0, 1)
 			lbl2 = lbl2.transpose(2, 0, 1)
-			d1 = torch.from_numpy(d1).float()
-			lbl1 = torch.from_numpy(lbl1).float()
-			d2 = torch.from_numpy(d2).float()
-			lbl2 = torch.from_numpy(lbl2).float()
-
+			w1 = w1.transpose(2, 0, 1)
+			di = di.transpose(2, 0, 1)
+			reference_point = reference_point.transpose(2, 0, 1)
+			
+			d1 = torch.from_numpy(d1).float() # torch.float32 torch.Size([3, 992, 992])
+			lbl1 = torch.from_numpy(lbl1).float()    # torch.float64 torch.Size([2, 31, 31])
+			d2 = torch.from_numpy(d2).float() # torch.float32 torch.Size([3, 992, 992])
+			lbl2 = torch.from_numpy(lbl2).float()    # torch.float64 torch.Size([2, 31, 31])
+			w1 = torch.from_numpy(w1).float()     # torch.float32 torch.Size([3, 992, 992])
+			di = torch.from_numpy(di).float()    # torch.float32 torch.Size([3, 992, 992])
+			reference_point = torch.from_numpy(reference_point).float() # torch.float64 torch.Size([2, 31, 31])
+			
 			print('finished dataset preparation')
-			return d1, lbl1, d2, lbl2, wild_im, digital_im, reference_point
+			return d1, lbl1, d2, lbl2, w1, di, reference_point
 
 	def __len__(self):
-		print(len(range(int((self.idx+1)/4))))
+		# print(len(range(int((self.idx+1)/4))))
 		return len(range(int((self.idx+1)/4)))
 
 	def transform_im(self, im):
@@ -139,13 +135,13 @@ class my_unified_dataset(data.Dataset):
 
 	def resize_im0(self, im):
 		try:
+			im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 			im = cv2.resize(im, self.model_input_size, interpolation=cv2.INTER_LINEAR) 
 			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
 		except:
 			pass
 
 		return im
-
 
 	def resize_lbl(self, lbl, image):
 		h=image.shape[0]
@@ -186,11 +182,6 @@ class my_unified_dataset(data.Dataset):
 		return d1,lbl1,d2,lbl2,di,w1
 
 
-
-
-
-
-
 	def check_item_vis(self, im, lbl, idx):
 		'''
 		im : distorted image   # HWC 
@@ -202,14 +193,34 @@ class my_unified_dataset(data.Dataset):
 		im = Image.fromarray(im)
 		im.convert('RGB').save("./data_vis/img_vis{}.png".format(idx))
 		
-		fig, ax = plt.subplots(figsize = (w,h),facecolor='white')
-		ax.imshow(im)
-		ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
-		ax.axis('off')
-		plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
-		# plt.tight_layout()
-		plt.savefig('./data_vis/point_vis{}.png'.format(idx))
-		plt.close()
+		if lbl is not None:
+			# fig, ax = plt.subplots(figsize = (w,h),facecolor='black')
+			# ax.imshow(im)
+			# ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+			# ax.axis('off')
+			# plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+			# # plt.tight_layout()
+			# plt.savefig('./data_vis/point_vis{}.png'.format(idx))
+			# plt.close()
+			plt.figure(figsize = (w,h),facecolor='white')
+			plt.imshow(im)
+			plt.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+			plt.axis('off')
+			plt.margins(0,0)
+			plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+			plt.savefig('./data_vis/point_vis{}.png'.format(idx))
+			plt.close()
+
+	def checkimg_availability(self):
+		if self.mode == 'train' or self.mode == 'validate':
+			for im_name in self.image_set[self.mode]:
+				digital_im_path = pjoin(self.scan_root, im_name)
+				try:
+					img = Image.open(digital_im_path)
+				except:
+					print("bug image:", im_name)
+					# os.remove(digital_im_path)
+		print('all images is well prepared')
 
 	# def resize_im1(self, im, bfreq, hpf):
 	# 	try:
@@ -228,15 +239,3 @@ class my_unified_dataset(data.Dataset):
 
 	# 	# return img_rhpf
 	# 	return im
-	
-	def checkimg_availability(self):
-		if self.mode == 'train' or self.mode == 'validate':
-			for im_name in self.image_set[self.mode]:
-				digital_im_path = pjoin(self.scan_root, im_name)
-				try:
-					img = Image.open(digital_im_path)
-				except:
-					print("bug image:", im_name)
-					# os.remove(digital_im_path)
-		print('all images is well prepared')
-

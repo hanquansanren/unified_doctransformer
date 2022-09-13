@@ -19,7 +19,8 @@ class SaveFlatImage(object):
         handlebar_TPS: Thin Plate Spline, input multi-batch
         handlebar_interpolation: Interpolation, input one image
     '''
-    def __init__(self, path, date, date_time, _re_date, data_path_validate, data_path_test, preproccess=False, postprocess='tps', device=torch.device('cuda:0')):
+    def __init__(self, path, date, date_time, _re_date, data_path_validate, data_path_test, 
+                    preproccess=False, postprocess='tps', device=torch.device('cuda:0')):
         self.path = path
         self.date = date
         self.date_time = date_time
@@ -218,7 +219,10 @@ class FlatImg(object):
     '''
     def __init__(self, args, path, date, date_time, _re_date,
                  dataset=None, data_loader_hdf5=None, dataPackage_loader = None, \
-                 data_path=None, data_path_validate=None, data_path_test=None, is_data_preproccess=True):  
+                 data_path=None, data_path_validate=None, data_path_test=None, is_data_preproccess=True, \
+                 model = None,  optimizer = None):  
+        self.model = model
+        self.optimizer = optimizer
         self.args = args
         self.path = path
         self.date = date
@@ -267,7 +271,7 @@ class FlatImg(object):
     def loadTrainData(self, data_split):
         # bfreq,hpf=self.fdr()
         train_dataset = self.dataset(self.data_path, mode=data_split)
-        trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=8, drop_last=True, pin_memory=True,
+        trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=3, drop_last=True, pin_memory=True,
                                       shuffle=True)
         # =min([self.args.batch_size,1])
         return trainloader
@@ -283,8 +287,8 @@ class FlatImg(object):
         epoch += 1
         state = {'epoch': epoch,
                  'model_state': self.model.state_dict(),
-                 'optimizer_state': self.optimizer.state_dict(),    # AN ERROR HAS OCCURED
-                 }
+                 'optimizer_state': self.optimizer.state_dict(),
+                }
         i_path = os.path.join(self.path, self.date + self.date_time + ' @' + self._re_date,
                               str(epoch)) if self._re_date is not None else os.path.join(self.path, self.date + self.date_time, str(epoch))
         if not os.path.exists(i_path):
