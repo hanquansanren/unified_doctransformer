@@ -14,5 +14,9 @@ import torch.nn.init as tinit
 # a=os.getcwd()
 # print(a)
 
-c=round(3.256,2) #保留两位小数进行五舍六入
-print(c)
+# c=round(3.256,2) #保留两位小数进行五舍六入
+# print(c)
+
+a=5
+print("a=1") if a==5 else None
+print("ok")

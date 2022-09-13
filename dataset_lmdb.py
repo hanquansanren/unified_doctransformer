@@ -2,6 +2,7 @@ import os
 import pickle
 from os.path import join as pjoin
 import collections
+from sys import maxsize
 import matplotlib.pyplot as plt
 import json
 import random
@@ -21,6 +22,7 @@ class my_unified_dataset(data.Dataset):
 		self.root = os.path.expanduser(root) # './dataset/train.lmdb/'
 		self.mode = mode # 'train'
 		self.image_set = collections.defaultdict(dict) # 用于存储image的路径，存为字典形式，字典的key是mode(train or test)
+		self.test_imgname_list = collections.defaultdict(list)
 		self.row_gap = 1
 		self.col_gap = 1
 		datasets_mode = ['validate', 'train']
@@ -31,12 +33,12 @@ class my_unified_dataset(data.Dataset):
 		self.model_input_size = (992, 992) # (h,w) 31*32=992, 61*16=976
 
 		if self.mode == 'test':
-			img_file_list = os.listdir(pjoin(self.root))
-			self.image_set[self.mode] = img_file_list
-			self.image_set[self.mode] = sorted(img_file_list, key=lambda num: (
+			img_filename_list = os.listdir(pjoin(self.root))
+			self.test_imgname_list[self.mode] = img_filename_list
+			self.test_imgname_list[self.mode] = sorted(img_filename_list, key=lambda num: (
 			int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
 		elif self.mode in datasets_mode:
-			self.env = lmdb.open(self.root)
+			self.env = lmdb.open(self.root, map_size=1099511627776,lock=False)
 			self.txn = self.env.begin()
 			key_set = []
 			for self.idx, (key, value) in enumerate(self.txn.cursor()):
@@ -52,7 +54,7 @@ class my_unified_dataset(data.Dataset):
 
 	def __getitem__(self, item):
 		if self.mode == 'test':
-			im_name = self.image_set[self.mode][item]
+			im_name = self.test_imgname_list[self.mode][item]
 			digital_im_path = pjoin(self.root, im_name)
 			im = cv2.imread(digital_im_path, flags=cv2.IMREAD_COLOR)
 			im = cv2.resize(im, self.model_input_size, interpolation=cv2.INTER_LINEAR)
@@ -64,7 +66,7 @@ class my_unified_dataset(data.Dataset):
 			# key '0' ~ '850'
 			# value: [b'0_0000_2_d1', b'0_0000_2_d2', b'0_0000_2_di', b'0_0000_2_w1']
 			d1, lbl1, d2, lbl2, di, w1 = self.read_img_lmdb(self.env, im_set_key_list)
-			print("get data from lmdb successfully")
+			# print("get data from lmdb successfully")
 
 
 			# '''visualization point 1 for synthesis result'''
@@ -120,12 +122,17 @@ class my_unified_dataset(data.Dataset):
 			di = torch.from_numpy(di).float()    # torch.float32 torch.Size([3, 992, 992])
 			reference_point = torch.from_numpy(reference_point).float() # torch.float64 torch.Size([2, 31, 31])
 			
-			print('finished dataset preparation')
+			# print('finished dataset preparation')
 			return d1, lbl1, d2, lbl2, w1, di, reference_point
 
 	def __len__(self):
-		# print(len(range(int((self.idx+1)/4))))
-		return len(range(int((self.idx+1)/4)))
+		if self.mode == 'test':
+			return len(self.test_imgname_list[self.mode])
+		elif self.mode == 'train':
+			# print(len(range(int((self.idx+1)/4))))
+			return len(range(int((self.idx+1)/4)))
+		else:
+			print("error __len__")
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)

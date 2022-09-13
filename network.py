@@ -118,7 +118,7 @@ class model_handlebar(nn.Module):
 		# architecture=DilatedResnet # 传入了类名
 		super(model_handlebar, self).__init__()
 		self.in_channels = in_channels # 3
-		self.n_classes = n_classes # segment，后续需要被取消。
+		self.n_classes = n_classes
 		self.num_filter = num_filter
 		if BatchNorm == 'IN':
 			BatchNorm = nn.InstanceNorm2d
@@ -130,13 +130,12 @@ class model_handlebar(nn.Module):
 		# 这里实现了类DilatedResnet的实例化
 		self.dilated_unet = architecture(self.n_classes, self.num_filter, BatchNorm, in_channels=self.in_channels)
 
-	def forward(self, images1, labels1, images2, labels2, w_im, d_im, ref_pt, is_softmax=False):
-		return self.dilated_unet(images1, labels1, images2, labels2, w_im, d_im, ref_pt, is_softmax)
+	def forward(self, images1, labels1=None, images2=None, labels2=None, w_im=None, d_im=None, ref_pt=None):
+		return self.dilated_unet(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
 		# 参数传入forward之中
 
-''' Dilated Resnet For Flat By Classify with Rgress   simple -2'''
-class DilatedResnet(nn.Module):
 
+class DilatedResnet(nn.Module):
 	def __init__(self, n_classes, num_filter, BatchNorm, in_channels=3):
 		super(DilatedResnet, self).__init__()
 		self.in_channels = in_channels # 图片的输入通道
@@ -251,7 +250,7 @@ class DilatedResnet(nn.Module):
 	# def cat(self, trans, down):
 	# 	return torch.cat([trans, down], dim=1)
 
-	def forward(self, images1, labels1, images2, labels2, w_im, d_im, ref_pt, is_softmax):
+	def forward(self, images1, labels1, images2, labels2, w_im, d_im, ref_pt):
 		'''part 1'''
 		resnet_head1 = self.resnet_head(images1) # 图示的第一层
 		resnet_down1 = self.resnet_down(resnet_head1) # 图示的中四层
@@ -282,3 +281,140 @@ class DilatedResnet(nn.Module):
 
 		out_regress2 = self.out_regress(bridge2)		
 		return out_regress1, out_regress2
+
+
+
+
+
+class DilatedResnet_for_test_single_image(nn.Module):
+
+	def __init__(self, n_classes, num_filter, BatchNorm, in_channels=3):
+		super(DilatedResnet_for_test_single_image, self).__init__()
+		self.in_channels = in_channels # 图片的输入通道
+		self.n_classes = n_classes # 标准控制点的通道数（维度），因为只有xy，所以为2
+		self.num_filter = num_filter #卷积核个数=下一层的通道数
+		# act_fn = nn.PReLU()
+		act_fn = nn.ReLU(inplace=True)
+		# act_fn = nn.LeakyReLU(0.2)
+
+		map_num = [1, 2, 4, 8, 16] # 通道数控制器，乘以32后分别是：
+		# [32, 64, 128, 256, 512]
+
+
+		print("\n------load DilatedResnet------\n")
+
+		self.resnet_head = nn.Sequential(
+
+			nn.Conv2d(self.in_channels, self.num_filter * map_num[0], kernel_size=3, stride=2, padding=1), # 3 -> 32
+			# nn.InstanceNorm2d(self.num_filter * map_num[0]),
+			# BatchNorm(1, self.num_filter * map_num[0]),
+			BatchNorm(self.num_filter * map_num[0]),
+			# nn.BatchNorm2d(self.num_filter * map_num[0]),
+			act_fn,
+			# nn.Dropout(p=0.2),
+			# nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
+			nn.Conv2d(self.num_filter * map_num[0], self.num_filter * map_num[0], kernel_size=3, stride=2, padding=1), # 32 -> 32
+			BatchNorm(self.num_filter * map_num[0]),
+			act_fn,
+			# nn.Dropout(p=0.2),
+		)
+
+		self.resnet_down = ResNetV2StraightV2(num_filter, map_num, BatchNorm, block_nums=[3, 4, 6, 3], block=ResidualBlockWithDilatedV1, dropRate=[0, 0, 0, 0], is_sub_dropout=False)
+
+		map_num_i = 3
+		self.bridge_1 = nn.Sequential(
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								 act_fn, BatchNorm, dilation=1),
+			# conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i], act_fn),
+		)
+		self.bridge_2 = nn.Sequential(
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=2),
+		)
+		self.bridge_3 = nn.Sequential(
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=5),
+		)
+		self.bridge_4 = nn.Sequential(
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=8),
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=3),
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=2),
+		)
+		self.bridge_5 = nn.Sequential(
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=12),
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=7),
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=4),
+		)
+		self.bridge_6 = nn.Sequential(
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=18),
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=12),
+			dilation_conv_bn_act(self.num_filter * map_num[map_num_i], self.num_filter * map_num[map_num_i],
+								act_fn, BatchNorm, dilation=6),
+		)
+
+		self.bridge_concate = nn.Sequential(
+			nn.Conv2d(self.num_filter * map_num[map_num_i] * 6, self.num_filter * map_num[2], kernel_size=1, stride=1, padding=0),
+			# BatchNorm(GN_num, self.num_filter * map_num[4]),
+			BatchNorm(self.num_filter * map_num[2]),
+			# nn.BatchNorm2d(self.num_filter * map_num[4]),
+			act_fn,
+		)
+
+		self.out_regress = nn.Sequential(
+			nn.Conv2d(self.num_filter * map_num[2], self.num_filter * map_num[0], kernel_size=3, stride=1, padding=1),
+			# input 128, output 32
+			BatchNorm(self.num_filter * map_num[0]),
+			nn.PReLU(),
+			nn.Conv2d(self.num_filter * map_num[0], n_classes, kernel_size=3, stride=1, padding=1),
+			# input 32, output 2
+		)
+
+
+		self.segment_regress = nn.Linear(self.num_filter * map_num[2]*31*31, 2)
+
+		self._initialize_weights()
+
+	def _initialize_weights(self):
+		for m in self.modules(): # 遍历所有的network结构
+			if isinstance(m, nn.Conv2d):
+				tinit.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+				# tinit.xavier_normal_(m.weight, gain=0.2)
+				if m.bias is not None:
+					tinit.constant_(m.bias, 0)
+			elif isinstance(m, nn.ConvTranspose2d):
+				assert m.kernel_size[0] == m.kernel_size[1]
+				tinit.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+				# tinit.xavier_normal_(m.weight, gain=0.2)
+			elif isinstance(m, nn.Linear):
+				tinit.normal_(m.weight, 0, 0.01)
+				# m.weight.data.normal_(0, 0.01)
+				if m.bias is not None:
+					tinit.constant_(m.bias, 0)
+
+	# def cat(self, trans, down):
+	# 	return torch.cat([trans, down], dim=1)
+
+	def forward(self, images1, labels1, images2, labels2, w_im, d_im, ref_pt):
+		resnet_head1 = self.resnet_head(images1) # 图示的第一层
+		resnet_down1 = self.resnet_down(resnet_head1) # 图示的中四层
+
+		bridge_11 = self.bridge_1(resnet_down1)
+		bridge_12 = self.bridge_2(resnet_down1)
+		bridge_13 = self.bridge_3(resnet_down1)
+		bridge_14 = self.bridge_4(resnet_down1)
+		bridge_15 = self.bridge_5(resnet_down1)
+		bridge_16 = self.bridge_6(resnet_down1)
+		bridge_concate1 = torch.cat([bridge_11, bridge_12, bridge_13, bridge_14, bridge_15, bridge_16], dim=1) 
+		# output: torch.Size([1, 1536, 32, 32])
+		bridge1 = self.bridge_concate(bridge_concate1)# torch.Size([1, 128, 31, 31]) # 第六层，输出层 256->128
+		out_regress1 = self.out_regress(bridge1) # torch.Size([1, 2, 31, 31]) #第七八层，包含两次卷积 128->32->2 
+		
+		return out_regress1
