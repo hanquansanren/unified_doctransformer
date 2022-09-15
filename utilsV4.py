@@ -114,7 +114,7 @@ class SaveFlatImage(object):
         if scheme == 'test':
             i_path += '/test'
         if not os.path.exists(i_path):
-            os.makedirs(i_path)
+            os.makedirs(i_path,exist_ok=True)
 
         im_name = im_name.replace('gw', 'png')
         cv2.imwrite(i_path + '/mark_' + im_name, perturbed_img_mark)
@@ -184,7 +184,7 @@ class SaveFlatImage(object):
         if scheme == 'test':
             i_path += '/test'
         if not os.path.exists(i_path):
-            os.makedirs(i_path)
+            os.makedirs(i_path,exist_ok=True)
 
         im_name = im_name.replace('gw', 'png')
         cv2.imwrite(i_path + '/' + im_name, img_figure)
@@ -230,7 +230,7 @@ class FlatImg(object):
     '''
     def __init__(self, args, out_path, date, date_time, _re_date,\
                  dataset=None, data_path=None, data_path_validate=None, data_path_test=None, \
-                 model = None,  optimizer = None):  
+                 model = None,  optimizer = None, reslut_file = None):  
         self.model = model
         self.optimizer = optimizer
         self.args = args
@@ -238,6 +238,7 @@ class FlatImg(object):
         self.date = date
         self.date_time = date_time
         self._re_date = _re_date
+        self.reslut_file = reslut_file
         
         self.dataset = dataset
         self.data_path = data_path
@@ -248,12 +249,13 @@ class FlatImg(object):
     def loadTrainData(self, data_split, is_DDP = False):
         train_dataset = self.dataset(self.data_path, mode=data_split)
         if is_DDP == True:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-            trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=8, drop_last=True, pin_memory=True,
-                                      shuffle=False, sampler=train_sampler)
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, shuffle=True)
+            trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 4]), \
+                                        drop_last=True, pin_memory=True, shuffle=False, sampler=train_sampler)
         else:
-            trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=8, drop_last=True, pin_memory=True,
-                                      shuffle=True)            
+            trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 4]), \
+                                        drop_last=True, pin_memory=True, shuffle=True)
+            train_sampler = None            
         return trainloader, train_sampler
 
     def loadTestData(self):
@@ -263,11 +265,12 @@ class FlatImg(object):
 
 
 
-    def saveModel_epoch(self, epoch, model, optimizer):
+    def saveModel_epoch(self, epoch, model, optimizer, scheduler):
         epoch += 1
         state = {'epoch': epoch,
                  'model_state': model.state_dict(),
                  'optimizer_state': optimizer.state_dict(),
+                 'scheduler_state' : scheduler.state_dict()
                 }
         i_path = os.path.join(self.out_path, self.date + self.date_time + ' @' + self._re_date,
                               str(epoch)) if self._re_date is not None else os.path.join(self.out_path, self.date + self.date_time, str(epoch))

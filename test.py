@@ -96,7 +96,7 @@ def test(args):
     ''' load test data and test data'''
     FlatImg = utils.FlatImg(args=args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
                             data_path_test=data_path_test, \
-                            model = model, optimizer = None) 
+                            model = model, optimizer = None, reslut_file=log_file) 
     FlatImg.loadTestData()
 
 
@@ -109,7 +109,7 @@ def test(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='Document-Dewarping-with-Control-Points',
+    parser.add_argument('--arch', nargs='?', type=str, default='DDCP',
                         help='Architecture')
 
     parser.add_argument('--n_epoch', nargs='?', type=int, default=300,
@@ -135,10 +135,10 @@ if __name__ == '__main__':
 
 
 
-    parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP2/flat/2022-09-13/2022-09-13 12:55:24 @2022-09-13/50/2022-09-13@2022-09-13 12:55:24Document-Dewarping-with-Control-Points.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     
-    parser.add_argument('--parallel', default='3', type=list,
+    parser.add_argument('--parallel', default='013', type=list,
                         help='choice the gpu id for parallel ')
 
     args = parser.parse_args()

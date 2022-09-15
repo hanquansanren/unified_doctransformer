@@ -7,9 +7,6 @@ import argparse
 from tkinter.messagebox import NO
 import time
 import re
-from pathlib import Path
-# FILE = Path(__file__).resolve() #获取绝对路径位置
-# ROOT = FILE.parents[0] #获取当前目录位置
 workdir=os.getcwd()
 from network import model_handlebar, DilatedResnet
 import utilsV4 as utils
@@ -18,6 +15,7 @@ from dataset_lmdb import my_unified_dataset
 from loss import Losses
 import torch.nn.functional as F
 import torch
+from torch.utils import data
 
 def train(args):
     ''' setup path '''
@@ -78,17 +76,35 @@ def train(args):
     else:
         raise Exception(args.optimizer,'<-- please choice optimizer')
     # LR Scheduler 
-    # sched=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[4, 9, 150, 200], gamma=0.5)
+    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 90, 150, 200], gamma=0.5)
 
     ''' load checkpoint '''
     if args.resume is not None:
-        if os.path.isfile(args.resume):
+        if os.path.isfile(args.resume) and args.is_DDP==True:
+            print("Loading model and optimizer from checkpoint '{}'".format(args.resume))
+            if args.parallel is not None:
+                checkpoint = torch.load(args.resume, map_location=torch.device('cpu')) 
+                model.load_state_dict(checkpoint['model_state'])
+                optimizer.load_state_dict(checkpoint['optimizer_state'])
+                scheduler.load_state_dict(checkpoint['scheduler_state'])
+                # print(next(model.parameters()).device)
+            else:
+                checkpoint = torch.load(args.resume, map_location=torch.device('cpu'))
+                model_parameter_dick = {}
+                for k in checkpoint['model_state']:
+                    model_parameter_dick[k.replace('module.', '')] = checkpoint['model_state'][k]
+                model.load_state_dict(model_parameter_dick)
+                # print(next(model.parameters()).device)
+            print("Loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        elif os.path.isfile(args.resume) and args.is_DDP==False:
             print("Loading model and optimizer from checkpoint '{}'".format(args.resume))
             if args.parallel is not None:
                 checkpoint = torch.load(args.resume, map_location=args.device) 
                 model.load_state_dict(checkpoint['model_state'])
                 optimizer.load_state_dict(checkpoint['optimizer_state'])
+                # scheduler.load_state_dict(checkpoint['scheduler_state'])
                 # print(next(model.parameters()).device)
             else:
                 checkpoint = torch.load(args.resume, map_location=args.device)
@@ -100,13 +116,13 @@ def train(args):
                 optimizer.load_state_dict(checkpoint['optimizer_state'])
                 # print(next(model.parameters()).device)
             print("Loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+                  .format(args.resume, checkpoint['epoch']))            
         else:
             print("No checkpoint found at '{}'".format(args.resume.name))
     # for name, param in model.named_parameters():
     #     print(name, param.size())
     epoch_start = checkpoint['epoch'] if args.resume is not None else 0
-
+    # epoch_start=0
     
     ''' load loss '''
     loss_instance = Losses(reduction='mean', args_gpu=args.device) # loss类的实例化
@@ -117,15 +133,26 @@ def train(args):
     
     loss_instance.lambda_loss = 1 # 主约束
     loss_instance.lambda_loss_a = 0.1 # 邻域约束
-    loss_instance.lambda_loss_b = 0.001
-    loss_instance.lambda_loss_c = 0.01
+    loss_instance.lambda_loss_b = 0
+    loss_instance.lambda_loss_c = 0
 
     ''' load data, dataloader'''
     FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
                             data_path = data_path, \
-                            model = model, optimizer = optimizer) 
+                            model = model, optimizer = optimizer, reslut_file=reslut_file) 
 
-    trainloader,train_sampler = FlatImg.loadTrainData(data_split='train', is_DDP = args.is_DDP)
+    trainloader, train_sampler = FlatImg.loadTrainData(data_split='train', is_DDP = args.is_DDP)
+    # dataset = my_unified_dataset
+    # train_dataset = dataset(data_path, mode='train')
+    # if args.is_DDP == True:
+    #     train_sampler = data.distributed.DistributedSampler(train_dataset, shuffle=True)
+    #     trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=min([os.cpu_count(), args.batch_size if args.batch_size > 1 else 0, 8]), \
+    #                                 drop_last=True, pin_memory=True, shuffle=False, sampler=train_sampler)
+    # else:
+    #     trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=min([os.cpu_count(), args.batch_size if args.batch_size > 1 else 0, 8]), \
+    #                                 drop_last=True, pin_memory=True, shuffle=True)            
+
+
     trainloader_len = len(trainloader)
     print("Total number of mini-batch in each epoch: ", trainloader_len)
     
@@ -141,7 +168,9 @@ def train(args):
             loss_list = []
 
             begin_train = time.time() #从这里正式开始训练当前epoch
-            train_sampler.set_epoch(epoch) if args.is_DDP else None
+            if args.is_DDP:
+                train_sampler.set_epoch(epoch)
+                print("shuffle successfully")
             model.train()
             for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader):
                 # print("get",images1.size())
@@ -156,10 +185,13 @@ def train(args):
                 optimizer.zero_grad()
                 outputs1, outputs2 = model(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
                 # outputs1和outputs2分别是是D1和D2的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-
+                # print("get outputs1: \t", outputs1.size())
+                # print("get outputs2: \t", outputs2.size())
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
                 loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
-                
+                # print("get loss1_l1: \t", loss1_l1.size())
+                # print("get loss1_local: \t", loss1_local.size())
+
                 # # fourier dewarp part
                 # map = get_bm(output3, ref_pt)
                 # w_im=fourier(w_im)
@@ -172,9 +204,10 @@ def train(args):
                 loss = loss1 + loss2
 
 
-                losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss.backward()
                 optimizer.step()
+                losses.update(loss.item()) # 自定义实例，用于计算平均值
+
 
 
 
@@ -182,8 +215,7 @@ def train(args):
                 loss_list.append(loss.item())
                 loss_l1_list += loss1_l1.item()
                 loss_local_list += loss1_local.item()
-                # loss_edge_list += loss_edge.item()
-                # loss_rectangles_list += loss_rectangles.item()
+
                 
                 # 每隔60个mini-batch显示一次loss，或者当当前epoch训练结束时
                 if (i + 1) % args.print_freq == 0 or (i + 1) == trainloader_len:
@@ -207,19 +239,16 @@ def train(args):
                         loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len,
                         loss=losses), file=reslut_file)
                     # 清零累计的loss
-                    del loss_list[:]
-                    # loss_interval_list = 0
-                    loss_l1_list = 0
-                    loss_local_list = 0
-                    # loss_edge_list = 0
-                    # loss_rectangles_list = 0
-            FlatImg.saveModel_epoch(epoch, model, optimizer)     # FlatImg.saveModel(epoch, save_path=path)
+                    # del loss_list[:]
+                    # loss_l1_list = 0
+                    # loss_local_list = 0
+            FlatImg.saveModel_epoch(epoch, model, optimizer, scheduler)     # FlatImg.saveModel(epoch, save_path=path)
             trian_t = time.time()-begin_train  #从这里宣布结束训练当前epoch
             losses.reset()
             train_time.update(trian_t)
             print("Current epoch training elapsed time:{:.2f} minutes ".format(trian_t/60))
             print("Total epoches training elapsed time:{:.2f} minutes ".format(train_time.sum/60) )
-            scheduler.step()
+            scheduler.step(metrics=min(loss_list))
 
 
 
@@ -231,7 +260,6 @@ def train(args):
 
     reslut_file.close()
 
-# train(args)
 
 
 
@@ -240,13 +268,13 @@ if __name__ == '__main__':
     parser.add_argument('--arch', nargs='?', type=str, default='DDCP',
                         help='Architecture')
 
-    parser.add_argument('--n_epoch', nargs='?', type=int, default=200,
+    parser.add_argument('--n_epoch', nargs='?', type=int, default=400,
                         help='# of the epochs')
 
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0002,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.009,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=1, type=int,
@@ -254,7 +282,7 @@ if __name__ == '__main__':
 
 
     # './synthesis_code'   './dataset/WarpDoc'  './dataset/warp0.lmdb' './dataset/train.lmdb'
-    parser.add_argument('--data_path_train', default='./dataset/train.lmdb', type=str,
+    parser.add_argument('--data_path_train', default='./dataset/warp1.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
     parser.add_argument('--data_path_test', default='./dataset/testset', type=str, help='the path of test images.')
@@ -262,8 +290,8 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
-                        help='Batch Size')#28   
+    parser.add_argument('--batch_size', nargs='?', type=int, default=32,
+                        help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
@@ -271,16 +299,15 @@ if __name__ == '__main__':
     parser.add_argument('--schema', type=str, default='train',
                         help='train or test')       # train  validate
     
-    parser.add_argument('--is_DDP', default=True, type=bool,
+    parser.add_argument('--is_DDP', default=False, type=bool,
                         help='whether to use DDP')
 
 
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
     
-    # parser.set_defaults(resume='/Data_HDD/fmp23_weiguang_zhang/DDCP2/flat/2022-09-13/2022-09-13 16:11:15/10/2022-09-13 16:11:15DDCP.pkl')
-    parser.add_argument('--parallel', default='23', type=list,
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/398/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
+    parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
-
                         
     args = parser.parse_args()
 
@@ -300,6 +327,6 @@ if __name__ == '__main__':
     out_path = os.path.join(args.output_path, date)
 
     if not os.path.exists(out_path):
-        os.makedirs(out_path)
+        os.makedirs(out_path,exist_ok=True)
 
     train(args)
