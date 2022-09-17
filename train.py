@@ -16,6 +16,8 @@ from loss import Losses
 import torch.nn.functional as F
 import torch
 from torch.utils import data
+from os.path import join as pjoin
+from intermediate_dewarp_loss import get_dewarped_intermediate_result
 
 def train(args):
     ''' setup path '''
@@ -76,7 +78,7 @@ def train(args):
     else:
         raise Exception(args.optimizer,'<-- please choice optimizer')
     # LR Scheduler 
-    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=12, verbose=True)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 90, 150, 200], gamma=0.5)
 
     ''' load checkpoint '''
@@ -141,21 +143,21 @@ def train(args):
                             data_path = data_path, \
                             model = model, optimizer = optimizer, reslut_file=reslut_file) 
 
-    trainloader, train_sampler = FlatImg.loadTrainData(data_split='train', is_DDP = args.is_DDP)
-    # dataset = my_unified_dataset
-    # train_dataset = dataset(data_path, mode='train')
-    # if args.is_DDP == True:
-    #     train_sampler = data.distributed.DistributedSampler(train_dataset, shuffle=True)
-    #     trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=min([os.cpu_count(), args.batch_size if args.batch_size > 1 else 0, 8]), \
-    #                                 drop_last=True, pin_memory=True, shuffle=False, sampler=train_sampler)
-    # else:
-    #     trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=min([os.cpu_count(), args.batch_size if args.batch_size > 1 else 0, 8]), \
-    #                                 drop_last=True, pin_memory=True, shuffle=True)            
-
-
-    trainloader_len = len(trainloader)
+    lmdb_list = utils.get_total_lmdb(args.data_path_total)
+    trainloader_list = []
+    for k in lmdb_list:
+        full_data_path = pjoin(args.data_path_total, k)
+        trainloader_list.append(FlatImg.loadTrainData('train', full_data_path, is_DDP = args.is_DDP))
+    print(lmdb_list)
+    trainloader_len = len(trainloader_list[0][0])
     print("Total number of mini-batch in each epoch: ", trainloader_len)
     
+
+
+
+
+    tps_for_loss = get_dewarped_intermediate_result()
+
     if args.schema == 'train':
         train_time = AverageMeter()
         for epoch in range(epoch_start, args.n_epoch):
@@ -169,11 +171,11 @@ def train(args):
 
             begin_train = time.time() #从这里正式开始训练当前epoch
             if args.is_DDP:
-                train_sampler.set_epoch(epoch)
+                trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader):
-                # print("get",images1.size())
+            for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader_list[epoch%1][0]):
+                # print("get",images1.size()) # [32,3,992,992]
                 images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
                 images2 = images2.cuda()
@@ -183,20 +185,22 @@ def train(args):
                 ref_pt = ref_pt.cuda()                 
 
                 optimizer.zero_grad()
-                outputs1, outputs2 = model(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
+                outputs1, outputs2, output3 = model(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
                 # outputs1和outputs2分别是是D1和D2的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-                # print("get outputs1: \t", outputs1.size())
-                # print("get outputs2: \t", outputs2.size())
+                outputs1.backward()
+                
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
                 loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
-                # print("get loss1_l1: \t", loss1_l1.size())
-                # print("get loss1_local: \t", loss1_local.size())
 
-                # # fourier dewarp part
+                # fourier dewarp loss part
+                l1losss = tps_for_loss(w_im, d_im, output3)
+                l1losss.backward()
+
+
+                # FlatImg.validateOrTestModelV3(epoch, validate_test='t_for_loss', pt_predict = output3, ref_pt = ref_pt, wild_im = w_im_fft)
                 # map = get_bm(output3, ref_pt)
-                # w_im=fourier(w_im)
-                # d_im=fourier(d_im)
                 # flatten_w_im=F.grid_sample(w_im, map, padding_mode='border', align_corners=True)
+                
                 # loss3 = loss_instance.fourier_loss_a*loss_fun2(flatten_w_im,d_im)
 
                 loss1 = loss1_l1 + loss1_local*loss_instance.lambda_loss_a + loss1_edge*loss_instance.lambda_loss_b + loss1_rectangles*loss_instance.lambda_loss_c
@@ -222,18 +226,18 @@ def train(args):
                     list_len = len(loss_list) #print_freq
 
                     print('[{0}][{1}/{2}]\t\t'
-                          '[min{3:.2f} avg{4:.4f} max{5:.2f}]\t'
-                          '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
-                          '{loss.avg:.4f}'.format(
+                        '[min{3:.2f} avg{4:.4f} max{5:.2f}]\t'
+                        '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
+                        '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
                         loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len,
                         loss=losses))
                     
                     print('[{0}][{1}/{2}]\t\t'
-                          '[{3:.2f} {4:.4f} {5:.2f}]\t'
-                          '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
-                          '{loss.avg:.4f}'.format(
+                        '[{3:.2f} {4:.4f} {5:.2f}]\t'
+                        '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
+                        '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
                         loss_l1_list / list_len, loss_local_list / list_len, loss_edge_list / list_len, loss_rectangles_list / list_len,
@@ -268,13 +272,13 @@ if __name__ == '__main__':
     parser.add_argument('--arch', nargs='?', type=str, default='DDCP',
                         help='Architecture')
 
-    parser.add_argument('--n_epoch', nargs='?', type=int, default=400,
+    parser.add_argument('--n_epoch', nargs='?', type=int, default=1000,
                         help='# of the epochs')
 
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.009,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.01,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=1, type=int,
@@ -285,12 +289,16 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_train', default='./dataset/warp1.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
+    # './dataset'
+    parser.add_argument('--data_path_total', default='./dataset_for_debug', type=str,
+                        help='the path of train images.')
+
     parser.add_argument('--data_path_test', default='./dataset/testset', type=str, help='the path of test images.')
 
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=32,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -305,7 +313,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
     
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/398/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/398/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         

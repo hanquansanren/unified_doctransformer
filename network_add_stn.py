@@ -286,6 +286,20 @@ class DilatedResnet(nn.Module):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class DilatedResnet_for_test_single_image(nn.Module):
 
 	def __init__(self, n_classes, num_filter, BatchNorm, in_channels=3):

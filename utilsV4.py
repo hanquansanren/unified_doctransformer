@@ -38,7 +38,73 @@ class SaveFlatImage(object):
         self.fiducial_num = self.fiducial_point_num[self.col_gap], self.fiducial_point_num[self.row_gap] # 31,31
 
 
-    def handlebar(self, pred_points, im_name, epoch, process_pool=None, scheme='test', is_scaling=False):
+    def handlebar_for_loss(self, epoch, predict_pt, ref_pt, wild_im, scheme='test'):
+        for i_val_i in range(predict_pt.shape[0]):
+            if self.postprocess == 'tps':
+                self.handlebar_TPS_for_loss(predict_pt[i_val_i], epoch, wild_im, scheme)
+            else:
+                print('Error: Other postprocess.')
+                exit()
+
+    def handlebar_TPS_for_loss(self, fiducial_points, epoch, original_img, scheme='test'):
+        '''输出图尺寸设定'''
+        output_img_shape=(992,992)
+        shrunken_img_height, shrunken_img_width = original_img.shape[2:] # 因为直接处理全图会TPS计算非常缓慢，故而近计算1/25的尺寸，最后再上采样回去
+        shrunken_img_height /=5
+        shrunken_img_width /=5
+        shrunken_img_shape = [shrunken_img_height, shrunken_img_width]
+        
+        '''TPS类初始化'''
+        # 这里嵌套了一个类，实际上是初始化了两个类
+        if self.postprocess == 'tps':
+            self.tps = createThinPlateSplineShapeTransformer(shrunken_img_shape, fiducial_num=self.fiducial_num, device=self.device)
+            # input：(shrunken h, shrunken w), (31, 31), device
+
+        
+        '''将输入测试图像转换为tensor，并归一化'''
+        # 这里是入口参数，因此需要用叶张量，而非torch.from_numpy()
+        perturbed_img_ = original_img.clone().detach() # perturbed_img_ = torch.tensor(original_img)
+        
+        
+        time_1 = time.time()
+        fiducial_points = fiducial_points / [992, 992] # 归一化，模型输出点稀疏点本身就在992*992的范围内[31,31,2]
+        fiducial_points_ = torch.tensor(fiducial_points.transpose(1,0,2).reshape(-1,2)) # [31,31,2] -> [961,2] HWC->WHC->(WH)C
+        fiducial_points_ = (fiducial_points_[None,:]-0.5)*2 #将[0,1]的数据转换到[-1,1]范围内 [961,2] -> [1,961,2]
+        # 因为是nn.module的子类，所以这里的参数将传入类中的forward()
+        # 在这一步真正实现了tps##############################################
+        rectified = self.tps(perturbed_img_, fiducial_points_.to(self.device), list(output_img_shape))
+        # output: [1, 3, h, w], device='cuda', 统一dtype为torch.float64
+        
+        
+        
+        
+        time_2 = time.time()
+        time_interval = time_2 - time_1
+        print('TPS time: '+ str(time_interval))
+
+        
+
+        '''save'''
+        flatten_img = rectified[0].cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+        flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+
+        # i_path = os.path.join(self.out_path, self.date + self.date_time + ' @' + self._re_date,
+        #                       str(epoch)) if self._re_date is not None else os.path.join(self.out_path,
+        #                                                                                  self.date + self.date_time,
+        #                                                                                  str(epoch))
+
+        # sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
+        # perturbed_img_mark = self.location_mark(original_img.copy(), sshape*output_img_shape[::-1], (0, 0, 255))
+
+        # if scheme == 'test':
+        #     i_path += '/test'
+        # if not os.path.exists(i_path):
+        #     os.makedirs(i_path,exist_ok=True)
+
+        # cv2.imwrite(i_path + '/mark_asas' , perturbed_img_mark)
+        # cv2.imwrite(i_path + '/asad' , flatten_img)
+
+    def handlebar(self, pred_points, epoch, im_name=None , process_pool=None, scheme='test', is_scaling=False):
         for i_val_i in range(pred_points.shape[0]):
             if self.postprocess == 'tps':
                 self.handlebar_TPS(pred_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
@@ -245,9 +311,10 @@ class FlatImg(object):
         self.data_path_validate = data_path_validate
         self.data_path_test = data_path_test
         self.postprocess_list = ['tps', 'interpolation']
+        self.lowpart, self.hpf = self.fdr()
 
-    def loadTrainData(self, data_split, is_DDP = False):
-        train_dataset = self.dataset(self.data_path, mode=data_split)
+    def loadTrainData(self, data_split, data_path, is_DDP = False):
+        train_dataset = self.dataset(data_path, mode=data_split)
         if is_DDP == True:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, shuffle=True)
             trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 4]), \
@@ -286,10 +353,9 @@ class FlatImg(object):
                        i_path + '/' + self._re_date + "@" + self.date + self.date_time + "{}".format(
                            self.args.arch) + ".pkl")
 
-    def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False):
+    def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False, predict_pt=None, ref_pt = None, wild_im = None):
         self.save_flat_mage = SaveFlatImage(self.out_path, self.date, self.date_time, self._re_date, \
                                             self.data_path_validate, self.data_path_test, \
-                                            postprocess=self.postprocess_list[0], \
                                             device=torch.device(self.args.device))
         if validate_test == 't_all':
             begin_test = time.time()
@@ -302,66 +368,71 @@ class FlatImg(object):
                     outputs = self.model(images)
                     pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
 
-                    self.save_flat_mage.handlebar(pred_regress, im_name, epoch + 1,
+                    self.save_flat_mage.handlebar(pred_regress, epoch + 1, im_name, 
                                                 scheme='test', is_scaling=is_scaling)
                     # except:
                     #     print('* save image tested error :' + im_name[0])
-                
 
-
-                test_time = time.time() - begin_test
-                print('total test time : {test_time:.3f} seconds'.format(
-                    test_time=test_time))
-                print('total test time : {test_time:.3f} seconds'.format(
-                    test_time=test_time),file=self.log_file) # save log
-        else:
+            test_time = time.time() - begin_test
+            print('total test time : {test_time:.3f} seconds'.format(
+                test_time=test_time))
+            print('total test time : {test_time:.3f} seconds'.format(
+                test_time=test_time),file=self.log_file) # save log
+        elif validate_test == 't_for_loss':
             begin_test = time.time()
-            with torch.no_grad():
-                for i_valloader, valloader in enumerate(self.testloaderSet.values()):
+            with torch.inference_mode(mode=True):
 
-                    for i_val, (images, im_name) in enumerate(valloader):
-                        try:
-                            # save_img_ = True
-                            # save_img_ = random.choices([True, False], weights=[1, 0])[0]
-                            save_img_ = random.choices([True, False], weights=[0.4, 0.6])[0]
+                predict_pt = predict_pt.data.cpu().numpy().transpose(0, 2, 3, 1) # BHWC
 
-                            if save_img_:
-                                images = images.cuda()
+                self.save_flat_mage.handlebar_for_loss(epoch + 1, predict_pt, ref_pt, wild_im,
+                                            scheme='test')
 
-                                outputs= self.model(images)
-
-                                pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
-                                # pred_segment = outputs_segment.data.round().int().cpu().numpy()  # (4, 1280, 1024)  ==outputs.data.argmax(dim=0).cpu().numpy()
-
-                                self.save_flat_mage.handlebar(pred_regress, im_name,
-                                                              epoch + 1,
-                                                              scheme='test', is_scaling=is_scaling)
-                        except:
-                            print('* save image tested error :' + im_name[0])
-                test_time = time.time() - begin_test
-
-                print('test time : {test_time:.3f}'.format(
-                    test_time=test_time))
-
-                print('test time : {test_time:.3f}'.format(
-                    test_time=test_time), file=self.log_file)
+            test_time = time.time() - begin_test
+            print('total test time : {test_time:.3f} seconds'.format(
+                test_time=test_time))
+            print('total test time : {test_time:.3f} seconds'.format(
+                test_time=test_time),file=self.log_file) # save log
     
     
-    # def fdr(self):
-    #     blank_im = np.uint8(255*np.ones((992, 992, 3)))
-	# 	# blank_im = Image.fromarray(np.uint8(blank_im))
-    #     h,w,c = blank_im.shape
-	# 	#生成低通和高通滤波器
-    #     lpf = np.zeros((h,w,3))
-    #     sh = h*0.06
-    #     sw = w*0.06
-    #     for x in range(w):
-    #         for y in range(h):
-    #             if (x<(w/2+sw)) and (x>(w/2-sw)):
-    #                 if (y<(h/2+sh)) and (y>(h/2-sh)):
-    #                     lpf[y,x,:] = 1            
+    def fdr(self):        
+        blank_im = 255*torch.ones((1, 3, 992, 992)).int()
+        h,w= blank_im.shape[2:]        
+        lpf = torch.zeros((1,3,h,w))
+        sh = h*0.06 
+        sw = w*0.06
+        for x in range(w):
+            for y in range(h):
+                if (x<(w/2+sw)) and (x>(w/2-sw)) and (y<(h/2+sh)) and (y>(h/2-sh)):
+                    lpf[:,:,y,x] = 1
+        hpf = 1-lpf
 
-    #     bfreq = np.fft.fft2(blank_im,axes=(0,1))
-    #     bfreq = np.fft.fftshift(bfreq)
-    #     return lpf*bfreq, 1-lpf
+        bfreq = torch.fft.fft2(blank_im)
+        bfreq = torch.fft.ifftshift(bfreq)
+        return lpf*bfreq, hpf   # lpf*bfreq = low part, 1-lpf = hpf
+
+    def fourier_transform(self, im, bfreq = None, hpf= None):
+        freq = torch.fft.fft2(im)
+        freq = torch.fft.ifftshift(freq)
+        rhpf = bfreq + hpf * freq
+
+        img_rhpf = torch.abs(torch.fft.ifft2(rhpf))
+        img_rhpf = torch.clip(img_rhpf,0,255) 
+        # img_rhpf = img_rhpf.int().numpy().transpose(0, 2, 3, 1).squeeze(0)
+        # cv2.imwrite(file_path[:-4]+'_rhpf_torch.png',img_rhpf)
+        return img_rhpf
+
+
+def get_total_lmdb(path):                               # 函数功能为：筛选出文件夹下所有后缀名为.txt的文件
+    # path = './此处填写要筛选的文件夹地址名称'            # 文件夹地址
+    txt_list = []										# 创建一个空列表用于存放文件夹下所有后缀为.txt的文件名称
+    file_list = os.listdir(path)                   	 	# 获取path文件夹下的所有文件，并生成列表
+    for i in file_list:
+        file_ext = os.path.splitext(i)
+        front, ext = file_ext
+
+        if ext == '.lmdb':
+            txt_list.append(i)
+    # print(txt_list)
+    return txt_list
+
 

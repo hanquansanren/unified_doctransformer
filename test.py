@@ -135,7 +135,7 @@ if __name__ == '__main__':
 
 
 
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/398/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     
     parser.add_argument('--parallel', default='013', type=list,

@@ -278,9 +278,51 @@ class DilatedResnet(nn.Module):
 		bridge_26 = self.bridge_6(resnet_down2)
 		bridge_concate2 = torch.cat([bridge_21, bridge_22, bridge_23, bridge_24, bridge_25, bridge_26], dim=1)
 		bridge2 = self.bridge_concate(bridge_concate2)
+		out_regress2 = self.out_regress(bridge2)
 
-		out_regress2 = self.out_regress(bridge2)		
-		return out_regress1, out_regress2
+		'''part 3'''
+		resnet_head3 = self.resnet_head(w_im) # 图示的第一层
+		resnet_down3 = self.resnet_down(resnet_head3) # 图示的中四层
+
+		bridge_31 = self.bridge_1(resnet_down3)
+		bridge_32 = self.bridge_2(resnet_down3)
+		bridge_33 = self.bridge_3(resnet_down3)
+		bridge_34 = self.bridge_4(resnet_down3)
+		bridge_35 = self.bridge_5(resnet_down3)
+		bridge_36 = self.bridge_6(resnet_down3)
+		bridge_concate3 = torch.cat([bridge_31, bridge_32, bridge_33, bridge_34, bridge_35, bridge_36], dim=1)
+		bridge3 = self.bridge_concate(bridge_concate3) # torch.Size([1, 128, 31, 31]) # 第六层，输出层 256->128
+		out_regress3 = self.out_regress(bridge3)	# torch.Size([1, 2, 31, 31]) #第七八层，包含两次卷积 128->32->2
+		
+		
+		
+		
+		
+		return out_regress1, out_regress2, out_regress3
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

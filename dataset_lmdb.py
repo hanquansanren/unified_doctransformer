@@ -18,7 +18,7 @@ import time
 import lmdb
 
 class my_unified_dataset(data.Dataset):
-	def __init__(self, root, mode='train', bfreq=None,hpf= None):
+	def __init__(self, root, mode='train'):
 		self.root = os.path.expanduser(root) # './dataset/train.lmdb/'
 		self.mode = mode # 'train'
 		self.image_set = collections.defaultdict(dict) # 用于存储image的路径，存为字典形式，字典的key是mode(train or test)
@@ -38,7 +38,7 @@ class my_unified_dataset(data.Dataset):
 			self.test_imgname_list[self.mode] = sorted(img_filename_list, key=lambda num: (
 			int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(1)), int(re.match(r'(\d+)_(\d+)( copy.png)', num, re.IGNORECASE).group(2))))
 		elif self.mode in datasets_mode:
-			self.env = lmdb.open(self.root, map_size=1099511627776,lock=False)
+			self.env = lmdb.open(self.root, map_size = 1099511627776, lock = False)
 			self.txn = self.env.begin()
 			key_set = []
 			for self.idx, (key, value) in enumerate(self.txn.cursor()):
@@ -86,7 +86,6 @@ class my_unified_dataset(data.Dataset):
 			reference_point = np.dstack([x, y])			
 
 
-			# im = self.resize_im1(im, self.bfreq, self.hpf)
 			'''resize images, labels and tansform to tensor'''
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
@@ -229,20 +228,3 @@ class my_unified_dataset(data.Dataset):
 					# os.remove(digital_im_path)
 		print('all images is well prepared')
 
-	# def resize_im1(self, im, bfreq, hpf):
-	# 	try:
-	# 		im = cv2.resize(im, (1020, 1020), interpolation=cv2.INTER_LINEAR)
-	# 		# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
-	# 	except:
-	# 		pass
-	
-	# 	# freq = np.fft.fft2(im,axes=(0,1))
-	# 	# freq = np.fft.fftshift(freq)
-
-	# 	# rhpf = bfreq + hpf * freq
-	# 	# img_rhpf = np.abs(np.fft.ifft2(rhpf,axes=(0,1)))
-	# 	# img_rhpf = np.clip(img_rhpf,0,255) #会产生一些过大值需要截断
-	# 	# img_rhpf = img_rhpf.astype('uint8')
-
-	# 	# return img_rhpf
-	# 	return im
