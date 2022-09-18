@@ -105,7 +105,8 @@ class SaveFlatImage(object):
         # cv2.imwrite(i_path + '/asad' , flatten_img)
 
     def handlebar(self, pred_points, epoch, im_name=None , process_pool=None, scheme='test', is_scaling=False):
-        for i_val_i in range(pred_points.shape[0]):
+        # for i_val_i in range(pred_points.shape[0]):
+        for i_val_i in range(1):
             if self.postprocess == 'tps':
                 self.handlebar_TPS(pred_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
             elif self.postprocess == 'interpolation':
@@ -296,8 +297,9 @@ class FlatImg(object):
     '''
     def __init__(self, args, out_path, date, date_time, _re_date,\
                  dataset=None, data_path=None, data_path_validate=None, data_path_test=None, \
-                 model = None,  optimizer = None, reslut_file = None):  
+                 model = None,  model_validation=None, optimizer = None, reslut_file = None):  
         self.model = model
+        self.model_for_validation = model_validation
         self.optimizer = optimizer
         self.args = args
         self.out_path = out_path
@@ -327,7 +329,7 @@ class FlatImg(object):
 
     def loadTestData(self):
         test_dataset = self.dataset(self.data_path_test, mode='test')
-        self.testloader1 = data.DataLoader(test_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 8]),
+        self.testloader1 = data.DataLoader(test_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 4]),
                                       shuffle=False, pin_memory=True)
 
 
@@ -392,7 +394,28 @@ class FlatImg(object):
                 test_time=test_time))
             print('total test time : {test_time:.3f} seconds'.format(
                 test_time=test_time),file=self.log_file) # save log
-    
+        elif validate_test == 'v':
+            begin_test = time.time()
+
+            with torch.inference_mode(mode=True):
+                for i_val, (images, im_name) in enumerate(self.testloader1):
+                    images=images.to(self.args.device)
+                    print("this image will be tested in:{}".format(images.device)) 
+                    outputs = self.model(images)
+                    pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
+
+                    self.save_flat_mage.handlebar(pred_regress, epoch + 1, im_name, 
+                                                scheme='test', is_scaling=is_scaling)
+
+
+
+            test_time = time.time() - begin_test
+            print('total test time : {test_time:.3f} seconds'.format(
+                test_time=test_time))
+            print('total test time : {test_time:.3f} seconds'.format(
+                test_time=test_time),file=self.log_file) # save log
+        else:
+            print("error validation mode")
     
     def fdr(self):        
         blank_im = 255*torch.ones((1, 3, 992, 992)).int()

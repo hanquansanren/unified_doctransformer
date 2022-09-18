@@ -16,3 +16,4 @@ accuracy_log
 *.png
 output/
 backup/
+validation_vis/

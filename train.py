@@ -8,7 +8,7 @@ from tkinter.messagebox import NO
 import time
 import re
 workdir=os.getcwd()
-from network import model_handlebar, DilatedResnet
+from network import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
 import utilsV4 as utils
 from utilsV4 import AverageMeter
 from dataset_lmdb import my_unified_dataset
@@ -20,8 +20,7 @@ from os.path import join as pjoin
 from intermediate_dewarp_loss import get_dewarped_intermediate_result
 
 def train(args):
-    ''' setup path '''
-    data_path = str(args.data_path_train)
+
 
     ''' log writer '''
     global _re_date
@@ -40,6 +39,7 @@ def train(args):
     n_classes = 2
     model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)
     model.double()
+    model_val = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)
     tps_for_loss = get_dewarped_intermediate_result()
 
     ''' load device '''
@@ -65,6 +65,7 @@ def train(args):
     elif args.parallel is not None:
         model = model.to(args.device) # model.cuda(args.device) or model.cuda() # 模型统一移动到第一块GPU上。需要注意的是，对于模型（nn.module）来说，返回值值并非是必须的，而对于数据（tensor）来说，务必需要返回值。此处选择了比较保守的，带有返回值的统一写法
         model = torch.nn.DataParallel(model, device_ids=device_ids_visual_list) # device_ids定义了并行模式下，模型可以运行的多台机器，该函数不光支持多GPU，同时也支持多CPU，因此需要model.to()来指定具体的设备。
+        tps_for_loss = torch.nn.DataParallel(tps_for_loss, device_ids=device_ids_visual_list)
         print('The main device is in: ',next(model.parameters()).device)
     else:
         args.device = torch.device('cpu')
@@ -140,9 +141,10 @@ def train(args):
 
     ''' load data, dataloader'''
     FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
-                            data_path = data_path, \
-                            model = model, optimizer = optimizer, reslut_file=reslut_file) 
-
+                            data_path = args.data_path_train, data_path_test=args.data_path_test,\
+                            model = model, model_validation=model_val,\
+                            optimizer = optimizer, reslut_file=reslut_file) 
+    FlatImg.loadTestData()
     lmdb_list = utils.get_total_lmdb(args.data_path_total)
     trainloader_list = []
     for k in lmdb_list:
@@ -236,6 +238,9 @@ def train(args):
             print("Total epoches training elapsed time:{:.2f} minutes ".format(train_time.sum/60) )
             scheduler.step(metrics=min(loss_list))
 
+            model.eval()
+            FlatImg.validateOrTestModelV3(epoch, validate_test='v')
+
 
 
 
@@ -275,7 +280,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_total', default='./dataset', type=str,
                         help='the path of train images.')
 
-    parser.add_argument('--data_path_test', default='./dataset/testset', type=str, help='the path of test images.')
+    parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
 
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
