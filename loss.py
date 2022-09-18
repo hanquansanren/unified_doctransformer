@@ -1,3 +1,4 @@
+from tokenize import Double
 import torch
 import torch.nn.functional as F
 
@@ -25,7 +26,7 @@ class Losses(object):
                                    [0, 0, 0, 0, 1., 0, 0, 0, 0],
                                    [0, 0, 0, 0, 1., 0, 0, 0, 0],
                                    [0, 0, 0, 0, 1., 0, 0, 0, 0],
-                                   [0, 0, 0, 0, 1., 0, 0, 0, 0]]]]).cuda()
+                                   [0, 0, 0, 0, 1., 0, 0, 0, 0]]]],dtype=torch.float64).cuda()
         self.kernel = torch.tensor([[[[0, 1., 0],
                                       [1., 1., 1.],
                                       [0, 1., 0]]],
@@ -46,8 +47,6 @@ class Losses(object):
         
         self.lambda_loss = 1
         self.lambda_loss_a = 1
-        self.lambda_loss_b = 1
-        self.lambda_loss_c = 1
         self.fourier_loss_a = 1
         self.fourier_loss_b = 1
         self.fourier_loss_c = 1

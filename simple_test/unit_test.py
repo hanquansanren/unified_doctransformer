@@ -41,8 +41,17 @@ import torch
 
 
 # 参考点生成
-xs = torch.linspace(0, 1020, steps=61)
-ys = torch.linspace(0, 1020, steps=61)
-x, y = torch.meshgrid(xs, ys, indexing='xy')
-P = torch.dstack([x, y])
-print(P)
+# xs = torch.linspace(0, 1020, steps=61)
+# ys = torch.linspace(0, 1020, steps=61)
+# x, y = torch.meshgrid(xs, ys, indexing='xy')
+# P = torch.dstack([x, y])
+# print(P)
+
+
+# 归一化测试
+# 只有当requires_grad=True时，讨论叶张量才有意义
+batch_pt = torch.ones((4, 2, 31, 31), requires_grad=True)
+batch_pt_norm = batch_pt / 992
+batch_pt_norm.sum().backward()
+print(batch_pt_norm.max())
+print("OK")

@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 class get_dewarped_intermediate_result(nn.Module):
 
-    def __init__(self, output_size=[992, 992], pt_num=[31, 31], device=torch.device('cuda:0')):
+    def __init__(self, output_size=[992/5, 992/5], pt_num=[31, 31], device=torch.device('cuda:0')):
         """
         通过初始化中的实例化estimateTransformation，间接实现了TPS。该类中仅包含F.grid_sample的过程
         input:
@@ -40,7 +40,15 @@ class get_dewarped_intermediate_result(nn.Module):
         bfreq = torch.fft.ifftshift(bfreq)
         return lpf*bfreq, hpf   # lpf*bfreq = low part, 1-lpf = hpf
 
-    def fourier_transform(self, im, bfreq = None, hpf= None):
+    def fourier_transform(self, im, bfreq = None, hpf = None, batch_num = None):
+        '''
+        im: [b, 3, 992, 992]
+        bfrep: (1, 3, 992, 992)
+        hpf: (1, 3, 992, 992)
+        '''
+        bfreq = bfreq.repeat(batch_num,1,1,1).to(self.device)
+        hpf = hpf.repeat(batch_num,1,1,1).to(self.device)
+
         freq = torch.fft.fft2(im)
         freq = torch.fft.ifftshift(freq)
         rhpf = bfreq + hpf * freq
@@ -56,24 +64,28 @@ class get_dewarped_intermediate_result(nn.Module):
 
     def forward(self, batch_I, batch_ref, batch_pt, output_shape = [992,992]):
         '''
-        batch_I:(tensor) [1, 3, 1521, 1137] 输入图像，tensor形式
-        batch_pt:(tensor) [1, 961, 2] 预测的warped 图像控制点，行序优先(因为采用了reshape，默认行序优先)
-        output_shape:(list) h,w,[1521, 1137] 用于生成regular的参考点
-        '''
-        # fourier dewarp part
-        batch_I_ffted = self.fourier_transform(batch_I, self.lowpart, self.hpf)
-        batch_ref_ffted = self.fourier_transform(batch_ref, self.lowpart, self.hpf)
-        # 这一步就完成了shrunken h*w形式的 backward mapping构建
-        build_P_prime = self.estimateTransformation.build_P_prime(batch_pt)  
+        batch_I:(tensor) [b, 3, 992, 992] 输入warped图像, requires_grad=False
+        batch_I:(tensor) [b, 3, 992, 992] 输入reference digital图像, requires_grad=False
+        batch_pt:(tensor) [b, 2, 31, 31] 预测的warped图像控制点,行序优先(因为采用了reshape/view,默认行序优先) requires_grad=True,梯度将从这里回传
+        output_shape:(list) h,w,[992, 992] 用于生成regular的参考点
+        '''        
+        # 完成shrunken h*w形式的 backward mapping构建
+        batch_num = batch_pt.shape[0]
+        batch_pt_norm = batch_pt / 992
+        batch_pt_norm = batch_pt_norm.permute(0,2,3,1).view(batch_num,-1,2)# [4, 2, 31, 31] ->  [4, 31, 31, 2] -> [4, 961, 2] 
+        build_P_prime = self.estimateTransformation.build_P_prime(batch_pt_norm)  
         build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
-        # # output: [1, shrunken h, shrunken w, 2]
+        # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
 
-        build_P_prime_reshape = build_P_prime_reshape.transpose(2, 3).transpose(1, 2) # [1, 320, 320, 2]-->[1, 2, 320, 320]
-        map = F.interpolate(build_P_prime_reshape, output_shape,  mode='bilinear', align_corners=True) # [1, 2, 320, 320]-->[1, 2, 1521, 1137] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
-        map = map.transpose(1, 2).transpose(2, 3) # [1, 2, 1521, 1137]-->[1, 1521, 1137, 2] 至此，获得了backward mapping
-        batch_I_r = F.grid_sample(batch_I_ffted, map, padding_mode='border', align_corners=True)
-        
-        return batch_I_r # output: [1, 3, h, w]
+        # fourier dewarp part
+        batch_I_ffted = self.fourier_transform(batch_I, self.lowpart, self.hpf, batch_num)
+        batch_ref_ffted = self.fourier_transform(batch_ref, self.lowpart, self.hpf, batch_num)
+
+        build_P_prime_reshape = build_P_prime_reshape.transpose(2, 3).transpose(1, 2) # [b, 198, 198, 2]-->[1, 2, 198, 198]
+        map = F.interpolate(build_P_prime_reshape, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
+        map = map.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
+        batch_I_r = F.grid_sample(batch_I_ffted, map, padding_mode='border', align_corners=True) # [b, 3, 992, 992], requires_grad=True
+        return batch_I_r, batch_ref_ffted # output: [b, 3, h, w]
 
 
 
