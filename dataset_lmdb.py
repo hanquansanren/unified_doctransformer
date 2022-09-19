@@ -135,7 +135,7 @@ class my_unified_dataset(data.Dataset):
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
-		im = torch.from_numpy(im).float()
+		im = torch.from_numpy(im).double()
 
 		return im
 

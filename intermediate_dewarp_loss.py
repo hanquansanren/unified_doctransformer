@@ -19,9 +19,10 @@ class get_dewarped_intermediate_result(nn.Module):
         self.f_row_num, self.f_col_num = pt_num # (31, 31)
         self.F = self.f_row_num * self.f_col_num # 961 总控制点数量
         self.output_size = list(map(int, output_size)) # (h, w)
-        self.device = device
+        # self.device = device
         self.lowpart, self.hpf = self.fdr()
-        self.estimateTransformation = estimateTransformation(self.F, self.output_size, self.device)
+        # self.estimateTransformation = estimateTransformation(self.F, self.output_size, self.device)
+        self.estimateTransformation = estimateTransformation(self.F, self.output_size)
         # input: 961, (h, w)
 
     def fdr(self):        
@@ -46,8 +47,8 @@ class get_dewarped_intermediate_result(nn.Module):
         bfrep: (1, 3, 992, 992)
         hpf: (1, 3, 992, 992)
         '''
-        bfreq = bfreq.repeat(batch_num,1,1,1).to(self.device)
-        hpf = hpf.repeat(batch_num,1,1,1).to(self.device)
+        bfreq = bfreq.repeat(batch_num,1,1,1).cuda()
+        hpf = hpf.repeat(batch_num,1,1,1).cuda()
 
         freq = torch.fft.fft2(im)
         freq = torch.fft.ifftshift(freq)
@@ -93,18 +94,18 @@ class get_dewarped_intermediate_result(nn.Module):
 
 class estimateTransformation(nn.Module):
 
-    def __init__(self, F, output_size, device):
+    def __init__(self, F, output_size):
         super(estimateTransformation, self).__init__()
         self.eps = 1e-6 # 为了防止径向基函数中的log()为0，故而加入一个很小的数值
         self.I_r_height, self.I_r_width = output_size # shrunken (h, w)
         self.F = F # 961
-        self.device = device
+        # self.device = device
         self.C = self._build_C(self.F) # (961,2)
         self.P = self._build_P(self.I_r_width, self.I_r_height) # (102400,2)
-        self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float64, device=self.device)) 
-        # self.P_hat = torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64, device=self.device)
-        self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64, device=self.device))
-
+        # self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float64, device=self.device)) 
+        # self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64, device=self.device))
+        self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float64)) 
+        self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64))
     def _build_C(self, F):
         '''
         构造归一化到[-1 to 1]的参考点矩阵，一共961个点的坐标
@@ -179,7 +180,8 @@ class estimateTransformation(nn.Module):
     # 主函数，构造backward mapping
     def build_P_prime(self, batch_C_prime):
         batch_size = batch_C_prime.size(0) # batch_C_prime= (1,961,2),是warped图像上的控制点位置（已归一化）
-        batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().to(self.device)), dim=1)  # batch_size x F+3 x 2 
+        # batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().to(self.device)), dim=1)  # batch_size x F+3 x 2 
+        batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().cuda()), dim=1)  # batch_size x F+3 x 2 
         # 实现 (1,961,2)+(1,3,2) in dim1= (1,964,2)，获得真实图像上的控制点
         batch_T = torch.matmul(self.inv_delta_C, batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [964, 964]*[1,964,2] (==[1,964, 964]*[1,964,2]) =[1, 964, 2]
         # 与求逆后的大矩阵相乘，获得参数转移矩阵T

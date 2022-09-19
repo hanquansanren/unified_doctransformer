@@ -105,7 +105,16 @@ class SaveFlatImage(object):
         # cv2.imwrite(i_path + '/asad' , flatten_img)
 
     def handlebar(self, pred_points, epoch, im_name=None , process_pool=None, scheme='test', is_scaling=False):
-        # for i_val_i in range(pred_points.shape[0]):
+        for i_val_i in range(pred_points.shape[0]):
+            if self.postprocess == 'tps':
+                self.handlebar_TPS(pred_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
+            elif self.postprocess == 'interpolation':
+                self.handlebar_interpolation(pred_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
+            else:
+                print('Error: Other postprocess.')
+                exit()
+
+    def handlebar_for_val(self, pred_points, epoch, im_name=None , process_pool=None, scheme='test', is_scaling=False):
         for i_val_i in range(1):
             if self.postprocess == 'tps':
                 self.handlebar_TPS(pred_points[i_val_i], im_name[i_val_i], epoch, None, scheme, is_scaling)
@@ -114,6 +123,7 @@ class SaveFlatImage(object):
             else:
                 print('Error: Other postprocess.')
                 exit()
+
 
     def handlebar_TPS(self, fiducial_points, im_name, epoch, original_img=None, scheme='test', is_scaling=False):
         '''
@@ -306,7 +316,7 @@ class FlatImg(object):
         self.date = date
         self.date_time = date_time
         self._re_date = _re_date
-        self.reslut_file = reslut_file
+        self.log_file = reslut_file
         
         self.dataset = dataset
         self.data_path = data_path
@@ -401,11 +411,12 @@ class FlatImg(object):
                 for i_val, (images, im_name) in enumerate(self.testloader1):
                     images=images.to(self.args.device)
                     print("this image will be tested in:{}".format(images.device)) 
-                    outputs = self.model(images)
+                    outputs = self.model_for_validation(images)
                     pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
 
-                    self.save_flat_mage.handlebar(pred_regress, epoch + 1, im_name, 
+                    self.save_flat_mage.handlebar_for_val(pred_regress, epoch + 1, im_name, 
                                                 scheme='test', is_scaling=is_scaling)
+                    break
 
 
 
@@ -459,3 +470,7 @@ def get_total_lmdb(path):                               # 函数功能为：筛�
     return txt_list
 
 
+def mask_calculator(lbl):
+    mask=lbl
+
+    return mask

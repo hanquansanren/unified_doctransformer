@@ -130,8 +130,8 @@ class model_handlebar(nn.Module):
 		# 这里实现了类DilatedResnet的实例化
 		self.dilated_unet = architecture(self.n_classes, self.num_filter, BatchNorm, in_channels=self.in_channels)
 
-	def forward(self, images1, labels1=None, images2=None, labels2=None, w_im=None, d_im=None, ref_pt=None):
-		return self.dilated_unet(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
+	def forward(self, images1, images2=None, w_im=None):
+		return self.dilated_unet(images1, images2, w_im)
 		# 参数传入forward之中
 
 
@@ -250,7 +250,7 @@ class DilatedResnet(nn.Module):
 	# def cat(self, trans, down):
 	# 	return torch.cat([trans, down], dim=1)
 
-	def forward(self, images1, labels1, images2, labels2, w_im, d_im, ref_pt):
+	def forward(self, images1, images2, w_im):
 		'''part 1'''
 		resnet_head1 = self.resnet_head(images1) # 图示的第一层
 		resnet_down1 = self.resnet_down(resnet_head1) # 图示的中四层
@@ -294,7 +294,19 @@ class DilatedResnet(nn.Module):
 		bridge3 = self.bridge_concate(bridge_concate3) # torch.Size([1, 128, 31, 31]) # 第六层，输出层 256->128
 		out_regress3 = self.out_regress(bridge3)	# torch.Size([1, 2, 31, 31]) #第七八层，包含两次卷积 128->32->2
 		
-		
+		# '''part 4'''
+		# resnet_head4 = self.resnet_head(w_im) # 图示的第一层
+		# resnet_down4 = self.resnet_down(resnet_head4) # 图示的中四层
+
+		# bridge_41 = self.bridge_1(resnet_down4)
+		# bridge_42 = self.bridge_2(resnet_down4)
+		# bridge_43 = self.bridge_3(resnet_down4)
+		# bridge_44 = self.bridge_4(resnet_down4)
+		# bridge_45 = self.bridge_5(resnet_down4)
+		# bridge_46 = self.bridge_6(resnet_down4)
+		# bridge_concate4 = torch.cat([bridge_41, bridge_42, bridge_43, bridge_44, bridge_45, bridge_46], dim=1)
+		# bridge4 = self.bridge_concate(bridge_concate4) # torch.Size([1, 128, 31, 31]) # 第六层，输出层 256->128
+		# out_regress4 = self.out_regress(bridge4)	# torch.Size([1, 2, 31, 31]) #第七八层，包含两次卷积 128->32->2		
 		
 		
 		
@@ -444,7 +456,7 @@ class DilatedResnet_for_test_single_image(nn.Module):
 	# def cat(self, trans, down):
 	# 	return torch.cat([trans, down], dim=1)
 
-	def forward(self, images1, labels1, images2, labels2, w_im, d_im, ref_pt):
+	def forward(self, images1, images2, w_im):
 		resnet_head1 = self.resnet_head(images1) # 图示的第一层
 		resnet_down1 = self.resnet_down(resnet_head1) # 图示的中四层
 

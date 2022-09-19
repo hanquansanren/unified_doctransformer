@@ -10,7 +10,7 @@ import re
 workdir=os.getcwd()
 from network import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
 import utilsV4 as utils
-from utilsV4 import AverageMeter
+from utilsV4 import AverageMeter, mask_calculator
 from dataset_lmdb import my_unified_dataset
 from loss import Losses
 import torch.nn.functional as F
@@ -40,6 +40,7 @@ def train(args):
     model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)
     model.double()
     model_val = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)
+    model_val.double()
     tps_for_loss = get_dewarped_intermediate_result()
 
     ''' load device '''
@@ -65,13 +66,14 @@ def train(args):
     elif args.parallel is not None:
         model = model.to(args.device) # model.cuda(args.device) or model.cuda() # 模型统一移动到第一块GPU上。需要注意的是，对于模型（nn.module）来说，返回值值并非是必须的，而对于数据（tensor）来说，务必需要返回值。此处选择了比较保守的，带有返回值的统一写法
         model = torch.nn.DataParallel(model, device_ids=device_ids_visual_list) # device_ids定义了并行模式下，模型可以运行的多台机器，该函数不光支持多GPU，同时也支持多CPU，因此需要model.to()来指定具体的设备。
+        tps_for_loss = tps_for_loss.to(args.device)
         tps_for_loss = torch.nn.DataParallel(tps_for_loss, device_ids=device_ids_visual_list)
         print('The main device is in: ',next(model.parameters()).device)
     else:
         args.device = torch.device('cpu')
         model=model.to(args.device) 
         print('The main device is in: ',next(model.parameters()).device)
-
+    model_val.cuda()
 
     ''' load optimizer '''
     if args.optimizer == 'SGD':
@@ -162,16 +164,16 @@ def train(args):
             print('* lambda_loss :'+str(loss_instance.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']), file=reslut_file)
             loss_l1_list = 0
             loss_local_list = 0
-            loss_rectangles_list = 0
             loss_list = []
             loss3_list = 0
+            loss4_list = 0
 
             begin_train = time.time() #从这里正式开始训练当前epoch
             if args.is_DDP:
                 trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader_list[epoch%3][0]):
+            for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader_list[epoch%1][0]):
                 # print("get",images1.size()) # [32,3,992,992]
                 images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
@@ -182,28 +184,35 @@ def train(args):
                 ref_pt = ref_pt.cuda()                 
 
                 optimizer.zero_grad()
-                outputs1, outputs2, output3 = model(images1, labels1, images2, labels2, w_im, d_im, ref_pt)
+                outputs1, outputs2, output3 = model(images1, images2, w_im)
                 # outputs1和outputs2分别是是D1和D2的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-                # fourier dewarp part
-                rectified_img, ref_img = tps_for_loss(w_im, d_im, output3)
+                
+                # calculating mask for label1
+                mask1 = mask_calculator(labels1)
+                mask2 = mask_calculator(labels2)
+
+                # fourier dewarp for part3 and part4
+                rectified_img3, ref_img3 = tps_for_loss(w_im, d_im, output3)
+                rectified_img4, ref_img4 = tps_for_loss(w_im, images1, output3)
 
                 # losses calculation
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
                 loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
-                print(loss_instance.lambda_loss_a)
                 loss1 = loss1_l1 + loss1_local*loss_instance.lambda_loss_a + loss1_edge*0 + loss1_rectangles*0
                 loss2 = loss2_l1 + loss2_local*loss_instance.lambda_loss_a + loss2_edge*0 + loss2_rectangles*0
-                loss3 = loss_fun2(rectified_img, ref_img)
-                loss = loss1 + loss2 + loss3
+                loss3 = loss_fun2(rectified_img3, ref_img3)
+                loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
+                loss = 0.1*(loss1 + loss2) + loss3 + loss4
 
                 loss.backward()
                 optimizer.step()
 
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
-                loss_l1_list += (loss1_l1.item()+loss2_l1.item())
-                loss_local_list += ((loss1_local.item()+loss2_local.item())*loss_instance.lambda_loss_a)
+                loss_l1_list += ((loss1_l1.item()+loss2_l1.item())*0.1)
+                loss_local_list += ((loss1_local.item()+loss2_local.item())*loss_instance.lambda_loss_a*0.1)
                 loss3_list += loss3.item()
+                loss4_list += loss4.item()
                 
                 # 每隔print_freq个mini-batch显示一次loss，或者当当前epoch训练结束时
                 if (i + 1) % args.print_freq == 0 or (i + 1) == trainloader_len:
@@ -215,7 +224,7 @@ def train(args):
                         '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss_rectangles_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len,
                         loss=losses))
                     
                     print('[{0}][{1}/{2}]\t\t'
@@ -224,7 +233,7 @@ def train(args):
                         '{loss.avg:.4f}'.format(
                         epoch + 1, i + 1, trainloader_len,
                         min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss_rectangles_list / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len,
                         loss=losses), file=reslut_file)
                     # 清零累计的loss
                     # del loss_list[:]
@@ -276,8 +285,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_train', default='./dataset/warp1.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
-    # './dataset_for_debug'
-    parser.add_argument('--data_path_total', default='./dataset', type=str,
+    # './dataset_for_debug'  './dataset'
+    parser.add_argument('--data_path_total', default='./dataset_for_debug', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -285,7 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=8,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -300,7 +309,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
     
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-18/2022-09-18 15:03:14/3/2022-09-18 15:03:14DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-18/2022-09-18 15:03:14/3/2022-09-18 15:03:14DDCP.pkl')
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         
