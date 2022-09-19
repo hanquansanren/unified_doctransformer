@@ -80,24 +80,35 @@ class my_unified_dataset(data.Dataset):
 			# ys = torch.linspace(0, self.model_input_size[0], steps=61)
 			# x, y = torch.meshgrid(xs, ys, indexing='xy')
 			# reference_point = torch.dstack([x, y])
-			xs = np.linspace(0, self.model_input_size[1], num=61)
-			ys = np.linspace(0, self.model_input_size[0], num=61)
-			x, y = np.meshgrid(xs, ys, indexing='xy')
-			reference_point = np.dstack([x, y])			
+
+			# xs = np.linspace(0, self.model_input_size[1], num=61)
+			# ys = np.linspace(0, self.model_input_size[0], num=61)
+			# x, y = np.meshgrid(xs, ys, indexing='xy')
+			# reference_point = np.dstack([x, y])			
 
 
 			'''resize images, labels and tansform to tensor'''
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
+
+			mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3)
+			mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
-			reference_point = self.fiducal_points_lbl(reference_point)
+			# reference_point = self.fiducal_points_lbl(reference_point)
 
 			# 两张合成图像，都resize到 (992,992)
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
 			di=self.resize_im0(di)
 			w1=self.resize_im0(w1)
+
+
+			self.check_item_vis(im=d1, lbl=pts1, idx=96)
+			self.check_item_vis(im=d2, lbl=pts2, idx=97)
+			self.check_item_vis(im=mask1, lbl=pts1, idx=98)
+			self.check_item_vis(im=mask2, lbl=pts2, idx=99)
+
 
 			# '''visualization point 2 for resized synthesized image and sampled control point'''
 			# self.check_item_vis(d1, lbl1, 25)
@@ -111,7 +122,9 @@ class my_unified_dataset(data.Dataset):
 			lbl2 = lbl2.transpose(2, 0, 1)
 			w1 = w1.transpose(2, 0, 1)
 			di = di.transpose(2, 0, 1)
-			reference_point = reference_point.transpose(2, 0, 1)
+			# reference_point = reference_point.transpose(2, 0, 1)
+			mask1 = mask1.transpose(2, 0, 1)
+			mask2 = mask2.transpose(2, 0, 1)
 			
 			d1 = torch.from_numpy(d1).double() # torch.float32 torch.Size([3, 992, 992])
 			lbl1 = torch.from_numpy(lbl1).double()    # torch.float64 torch.Size([2, 31, 31])
@@ -119,10 +132,14 @@ class my_unified_dataset(data.Dataset):
 			lbl2 = torch.from_numpy(lbl2).double()    # torch.float64 torch.Size([2, 31, 31])
 			w1 = torch.from_numpy(w1).double()     # torch.float32 torch.Size([3, 992, 992])
 			di = torch.from_numpy(di).double()    # torch.float32 torch.Size([3, 992, 992])
-			reference_point = torch.from_numpy(reference_point).double() # torch.float64 torch.Size([2, 31, 31])
-			
+			# reference_point = torch.from_numpy(reference_point).double() # torch.float64 torch.Size([2, 31, 31])
+			mask1 = torch.from_numpy(mask1).double()
+			mask2 = torch.from_numpy(mask2).double()
+
+
+
 			# print('finished dataset preparation')
-			return d1, lbl1, d2, lbl2, w1, di, reference_point
+			return d1, lbl1, d2, lbl2, w1, di, mask1, mask2
 
 	def __len__(self):
 		if self.mode == 'test':
@@ -187,17 +204,32 @@ class my_unified_dataset(data.Dataset):
 			w1 = value4['image']
 		return d1,lbl1,d2,lbl2,di,w1
 
+	def mask_calculator(self,lbl):
+		pt_edge = lbl[0,:,:] 
+		for num in range(1,60,1):
+			pt_edge=np.append(pt_edge, lbl[num,60,:][None,:] ,axis=0)
+		pt_edge = np.vstack((pt_edge,lbl[60,:,:][::-1,:]))
+		for num in range(59,0,-1):
+			pt_edge=np.append(pt_edge, lbl[num,0,:][None,:] ,axis=0)
+				
+		img = np.zeros((992, 992, 3), dtype=np.int32)
+		pts = pt_edge.round().astype(int)
 
-	def check_item_vis(self, im, lbl, idx):
+		mask = cv2.fillPoly(img, [pts], (1, 1, 1))
+		cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
+		return mask, pts
+
+	def check_item_vis(self, im=None, lbl=None, idx=None):
 		'''
 		im : distorted image   # HWC 
 		lbl : fiducial_points  # 61*61*2 
 		'''
-		# im=np.uint8(im)
-		h=im.shape[0]*0.01
-		w=im.shape[1]*0.01
-		im = Image.fromarray(im)
-		im.convert('RGB').save("./data_vis/img_vis{}.png".format(idx))
+		if im is not None:
+			im=np.uint8(im)
+			h=im.shape[0]*0.01
+			w=im.shape[1]*0.01
+			im = Image.fromarray(im)
+			im.convert('RGB').save("./data_vis/img_vis{}.png".format(idx))
 		
 		if lbl is not None:
 			# fig, ax = plt.subplots(figsize = (w,h),facecolor='black')
@@ -208,9 +240,11 @@ class my_unified_dataset(data.Dataset):
 			# # plt.tight_layout()
 			# plt.savefig('./data_vis/point_vis{}.png'.format(idx))
 			# plt.close()
-			plt.figure(figsize = (w,h),facecolor='white')
+			# plt.figure(figsize = (w,h),facecolor='white')
+			plt.figure(figsize = (w, h),facecolor='white')
 			plt.imshow(im)
-			plt.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+			# plt.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+			plt.scatter(lbl[:,0].flatten(),lbl[:,1].flatten(),s=1.2,c='red',alpha=1)
 			plt.axis('off')
 			plt.margins(0,0)
 			plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)

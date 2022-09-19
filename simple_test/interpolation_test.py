@@ -47,7 +47,7 @@ if __name__ == '__main__':
             print(key)
             value=pickle.loads(value)
             if key[-2:].decode()=='d1' or key[-2:].decode()=='d2':
-                pt_edge = value['label'][0,:,:]
+                pt_edge = value['label'][0,:,:] 
                 for num in range(1,60,1):
                     pt_edge=np.append(pt_edge, value['label'][num,60,:][None,:] ,axis=0)
                 pt_edge = np.vstack((pt_edge,value['label'][60,:,:][::-1,:]))
@@ -57,7 +57,7 @@ if __name__ == '__main__':
                 # check_vis(key, value['image'], pt_edge) # (240,2)
                 img = np.zeros((1024, 768, 3), dtype=np.int32)
                 pts = pt_edge.round().astype(int)
-                x, y = pts[:, 0], pts[:, 1]
+                # x, y = pts[:, 0], pts[:, 1]
 
                 a = cv2.fillPoly(img, [pts], (255, 255, 255))
                 cv2.imwrite('./simple_test/interpola_vis/pt_{}.png'.format(key), a)

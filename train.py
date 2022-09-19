@@ -7,10 +7,12 @@ import argparse
 from tkinter.messagebox import NO
 import time
 import re
+import cv2
+import numpy as np
 workdir=os.getcwd()
 from network import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
 import utilsV4 as utils
-from utilsV4 import AverageMeter, mask_calculator
+from utilsV4 import AverageMeter
 from dataset_lmdb import my_unified_dataset
 from loss import Losses
 import torch.nn.functional as F
@@ -20,8 +22,6 @@ from os.path import join as pjoin
 from intermediate_dewarp_loss import get_dewarped_intermediate_result
 
 def train(args):
-
-
     ''' log writer '''
     global _re_date
     if args.resume is not None:
@@ -173,7 +173,7 @@ def train(args):
                 trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (images1, labels1, images2, labels2, w_im, d_im, ref_pt) in enumerate(trainloader_list[epoch%1][0]):
+            for i, (images1, labels1, images2, labels2, w_im, d_im, mask1, mask2) in enumerate(trainloader_list[epoch%1][0]):
                 # print("get",images1.size()) # [32,3,992,992]
                 images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
@@ -181,19 +181,22 @@ def train(args):
                 labels2 = labels2.cuda() 
                 w_im = w_im.cuda()
                 d_im = d_im.cuda()
-                ref_pt = ref_pt.cuda()                 
+                # ref_pt = ref_pt.cuda()   
+                mask1 = mask1.cuda()
+                mask2 = mask2.cuda()                   
 
                 optimizer.zero_grad()
                 outputs1, outputs2, output3 = model(images1, images2, w_im)
                 # outputs1和outputs2分别是是D1和D2的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
                 
-                # calculating mask for label1
-                mask1 = mask_calculator(labels1)
-                mask2 = mask_calculator(labels2)
-
                 # fourier dewarp for part3 and part4
                 rectified_img3, ref_img3 = tps_for_loss(w_im, d_im, output3)
                 rectified_img4, ref_img4 = tps_for_loss(w_im, images1, output3)
+
+
+                images1 = images1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                images1 = images1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_00011.png', images1)
 
                 # losses calculation
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
@@ -201,6 +204,17 @@ def train(args):
                 loss1 = loss1_l1 + loss1_local*loss_instance.lambda_loss_a + loss1_edge*0 + loss1_rectangles*0
                 loss2 = loss2_l1 + loss2_local*loss_instance.lambda_loss_a + loss2_edge*0 + loss2_rectangles*0
                 loss3 = loss_fun2(rectified_img3, ref_img3)
+        
+                flatten_img = mask1*rectified_img4
+                flatten_img = flatten_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_00000.png', flatten_img)
+                refe4_img = mask1*ref_img4
+                refe4_img = refe4_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                refe4_img = refe4_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_00001.png', refe4_img)
+
+
                 loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
                 loss = 0.1*(loss1 + loss2) + loss3 + loss4
 

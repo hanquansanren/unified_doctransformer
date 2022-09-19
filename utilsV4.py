@@ -470,7 +470,19 @@ def get_total_lmdb(path):                               # 函数功能为：筛�
     return txt_list
 
 
-def mask_calculator(lbl):
-    mask=lbl
+# def mask_calculator(lbl): # (4, 2, 31, 31)
+#     mask=lbl
+#     pt_edge = lbl[:,:,0,:] # (B C Hy Wx)
+#     for num in range(1,30,1):
+#         pt_edge=np.append(pt_edge, lbl[:,:num,30][:,:,None,:] ,axis=0)
+#     pt_edge = np.vstack((pt_edge, lbl[:,:,30,:][:,:,::-1]))
+#     for num in range(29,0,-1):
+#         pt_edge=np.append(pt_edge, lbl[:,:,num,0][:,:,None,:] ,axis=0)
+    
+#     # check_vis(key, value['image'], pt_edge) # (240,2)
+#     img = np.zeros((992, 992, 3), dtype=np.int32)
+#     pts = pt_edge.round().astype(int)
 
-    return mask
+#     a = cv2.fillPoly(img, [pts], (255, 255, 255))
+#     cv2.imwrite('./simple_test/interpola_vis/pt_{}.png'.format(key), a)
+#     return mask
