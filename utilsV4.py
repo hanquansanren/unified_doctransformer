@@ -365,7 +365,7 @@ class FlatImg(object):
                        i_path + '/' + self._re_date + "@" + self.date + self.date_time + "{}".format(
                            self.args.arch) + ".pkl")
 
-    def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False, predict_pt=None, ref_pt = None, wild_im = None):
+    def validateOrTestModelV3(self, epoch, validate_test=None, is_scaling=False, predict_pt=None, wild_im = None, model=None):
         self.save_flat_mage = SaveFlatImage(self.out_path, self.date, self.date_time, self._re_date, \
                                             self.data_path_validate, self.data_path_test, \
                                             device=torch.device(self.args.device))
@@ -396,7 +396,7 @@ class FlatImg(object):
 
                 predict_pt = predict_pt.data.cpu().numpy().transpose(0, 2, 3, 1) # BHWC
 
-                self.save_flat_mage.handlebar_for_loss(epoch + 1, predict_pt, ref_pt, wild_im,
+                self.save_flat_mage.handlebar_for_loss(epoch + 1, predict_pt, wild_im,
                                             scheme='test')
 
             test_time = time.time() - begin_test
@@ -411,6 +411,7 @@ class FlatImg(object):
                 for i_val, (images, im_name) in enumerate(self.testloader1):
                     images=images.to(self.args.device)
                     print("this image will be tested in:{}".format(images.device)) 
+                    self.model_for_validation.load_state_dict(model.state_dict())
                     outputs = self.model_for_validation(images)
                     pred_regress = outputs.data.cpu().numpy().transpose(0, 2, 3, 1)
 

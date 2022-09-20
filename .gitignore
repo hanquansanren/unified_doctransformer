@@ -3,6 +3,7 @@ __pycache__/
 data_vis/
 dataset/
 dataset_for_debug/
+dataset_fast_train/
 checkpoint/
 ICDAR2021/
 simple_test/__pycache__/

@@ -83,7 +83,7 @@ def train(args):
     else:
         raise Exception(args.optimizer,'<-- please choice optimizer')
     # LR Scheduler 
-    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=9, verbose=True)
+    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 90, 150, 200], gamma=0.5)
 
     ''' load checkpoint '''
@@ -110,7 +110,7 @@ def train(args):
             if args.parallel is not None:
                 checkpoint = torch.load(args.resume, map_location=args.device) 
                 model.load_state_dict(checkpoint['model_state'])
-                optimizer.load_state_dict(checkpoint['optimizer_state'])
+                # optimizer.load_state_dict(checkpoint['optimizer_state'])
                 # scheduler.load_state_dict(checkpoint['scheduler_state'])
                 # print(next(model.parameters()).device)
             else:
@@ -139,7 +139,7 @@ def train(args):
     losses = AverageMeter() # 用于计数和计算平均loss
     
     loss_instance.lambda_loss = 1 # 主约束
-    loss_instance.lambda_loss_a = 0.1 # 邻域约束
+    loss_instance.lambda_loss_a = 0.05 # 邻域约束
 
     ''' load data, dataloader'''
     FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
@@ -202,7 +202,7 @@ def train(args):
                 loss5 = loss_fun2(mask2*rectified_img5, mask2*ref_img5)
                 loss6 = loss_fun2(mask2*rectified_img6, mask2*ref_img6)
                 loss7 = loss_fun2(mask1*rectified_img7, mask1*ref_img7)
-                loss = 0.25*(loss1 + loss2) + loss3 + 0.25*(loss4 + loss5) + 0.5*(loss6 + loss7)
+                loss = 0.1*(loss1 + loss2) + loss3 + 0.5*(loss4 + loss5) + 0.5*(loss6 + loss7)
 
 
                 '''vis for fourier dewarp'''
@@ -225,11 +225,11 @@ def train(args):
                 loss_list.append(loss.item())
                 loss_l1_list += ((loss1_l1.item()+loss2_l1.item())*0.1)
                 loss_local_list += ((loss1_local.item()+loss2_local.item())*loss_instance.lambda_loss_a*0.1)
-                loss3_list += loss3.item()
-                loss4_list += loss4.item()
-                loss5_list += loss5.item()
-                loss6_list += loss6.item()
-                loss7_list += loss7.item()
+                loss3_list += (loss3.item()*1)
+                loss4_list += (loss4.item()*0.5)
+                loss5_list += (loss5.item()*0.5)
+                loss6_list += (loss6.item()*0.5)
+                loss7_list += (loss7.item()*0.5)
                 
                 # 每隔print_freq个mini-batch显示一次loss，或者当当前epoch训练结束时
                 if (i + 1) % args.print_freq == 0 or (i + 1) == trainloader_len:
@@ -264,8 +264,8 @@ def train(args):
             print("Total epoches training elapsed time:{:.2f} minutes ".format(train_time.sum/60) )
             scheduler.step(metrics=min(loss_list))
 
-            model.eval()
-            FlatImg.validateOrTestModelV3(epoch, validate_test='v')
+            # model.eval()
+            # FlatImg.validateOrTestModelV3(epoch, validate_test='v', model=model)
 
 
 
@@ -291,7 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.01,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.1,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=1, type=int,
@@ -302,8 +302,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_train', default='./dataset/warp1.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
-    # './dataset_for_debug'  './dataset'
-    parser.add_argument('--data_path_total', default='./dataset', type=str,
+    # './dataset_for_debug'  './dataset'  './dataset_fast_train'
+    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -311,7 +311,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=6,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -326,7 +326,11 @@ if __name__ == '__main__':
 
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
     
-    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-18/2022-09-18 15:03:14/3/2022-09-18 15:03:14DDCP.pkl')
+    # 开局39，省时省力
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/83/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
+    # ICDAR
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         

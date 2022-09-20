@@ -42,7 +42,8 @@ def test(args):
     ''' load model '''
     n_classes = 2
     model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)     #
-    
+    model.double()
+
     ''' load device '''
     if args.parallel is not None:
         device_ids_real = list(map(int, args.parallel)) # ['2','3'] -> [2,3] 字符串批量转整形，再转生成器，再转数组 
@@ -118,7 +119,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer',nargs='?', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--print-freq', '-p', default=60, type=int,
+    parser.add_argument('--print-freq', '-p', default=1, type=int,
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
     parser.add_argument('--output-path', default=ROOT / 'flat/', type=str, help='the path is used to  save output --img or result.') 
@@ -135,10 +136,13 @@ if __name__ == '__main__':
 
 
 
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/398/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 13:39:28 @2022-09-15/84/2022-09-15@2022-09-20 13:39:28DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/1/2022-09-20 16:40:40DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/11/2022-09-20 16:40:40DDCP.pkl')        
+    
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     
-    parser.add_argument('--parallel', default='013', type=list,
+    parser.add_argument('--parallel', default='3', type=list,
                         help='choice the gpu id for parallel ')
 
     args = parser.parse_args()
