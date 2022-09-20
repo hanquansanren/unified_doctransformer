@@ -55,3 +55,9 @@ batch_pt_norm = batch_pt / 992
 batch_pt_norm.sum().backward()
 print(batch_pt_norm.max())
 print("OK")
+
+# 赋值测试
+a,b,c,d=0,0,0,0
+print(a,b,c,d)
+
+

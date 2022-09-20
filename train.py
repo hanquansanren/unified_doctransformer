@@ -162,11 +162,8 @@ def train(args):
         for epoch in range(epoch_start, args.n_epoch):
             print('* lambda_loss :'+str(loss_instance.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']))
             print('* lambda_loss :'+str(loss_instance.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']), file=reslut_file)
-            loss_l1_list = 0
-            loss_local_list = 0
             loss_list = []
-            loss3_list = 0
-            loss4_list = 0
+            loss_l1_list, loss_local_list, loss3_list, loss4_list, loss5_list, loss6_list, loss7_list = 0,0,0,0,0,0,0
 
             begin_train = time.time() #从这里正式开始训练当前epoch
             if args.is_DDP:
@@ -180,8 +177,7 @@ def train(args):
                 images2 = images2.cuda()
                 labels2 = labels2.cuda() 
                 w_im = w_im.cuda()
-                d_im = d_im.cuda()
-                # ref_pt = ref_pt.cuda()   
+                d_im = d_im.cuda()  
                 mask1 = mask1.cuda()
                 mask2 = mask2.cuda()                   
 
@@ -192,11 +188,9 @@ def train(args):
                 # fourier dewarp for part3 and part4
                 rectified_img3, ref_img3 = tps_for_loss(w_im, d_im, output3)
                 rectified_img4, ref_img4 = tps_for_loss(w_im, images1, output3)
-
-
-                images1 = images1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                images1 = images1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                cv2.imwrite('./mark_00011.png', images1)
+                rectified_img5, ref_img5 = tps_for_loss(w_im, images2, output3)
+                rectified_img6, ref_img6 = tps_for_loss(images1, images2, outputs1)
+                rectified_img7, ref_img7 = tps_for_loss(images2, images1, outputs2)
 
                 # losses calculation
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
@@ -204,19 +198,25 @@ def train(args):
                 loss1 = loss1_l1 + loss1_local*loss_instance.lambda_loss_a + loss1_edge*0 + loss1_rectangles*0
                 loss2 = loss2_l1 + loss2_local*loss_instance.lambda_loss_a + loss2_edge*0 + loss2_rectangles*0
                 loss3 = loss_fun2(rectified_img3, ref_img3)
-        
-                flatten_img = mask1*rectified_img4
-                flatten_img = flatten_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                cv2.imwrite('./mark_00000.png', flatten_img)
-                refe4_img = mask1*ref_img4
-                refe4_img = refe4_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                refe4_img = refe4_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                cv2.imwrite('./mark_00001.png', refe4_img)
-
-
                 loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
-                loss = 0.1*(loss1 + loss2) + loss3 + loss4
+                loss5 = loss_fun2(mask2*rectified_img5, mask2*ref_img5)
+                loss6 = loss_fun2(mask2*rectified_img6, mask2*ref_img6)
+                loss7 = loss_fun2(mask1*rectified_img7, mask1*ref_img7)
+                loss = 0.25*(loss1 + loss2) + loss3 + 0.25*(loss4 + loss5) + 0.5*(loss6 + loss7)
+
+
+                '''vis for fourier dewarp'''
+                # images1 = images1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                # images1 = images1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                # cv2.imwrite('./mark_00011.png', images1)
+                # flatten_img = mask1*rectified_img4
+                # flatten_img = flatten_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                # flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                # cv2.imwrite('./mark_00000.png', flatten_img)
+                # refe4_img = mask1*ref_img4
+                # refe4_img = refe4_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                # refe4_img = refe4_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                # cv2.imwrite('./mark_00001.png', refe4_img)
 
                 loss.backward()
                 optimizer.step()
@@ -227,27 +227,30 @@ def train(args):
                 loss_local_list += ((loss1_local.item()+loss2_local.item())*loss_instance.lambda_loss_a*0.1)
                 loss3_list += loss3.item()
                 loss4_list += loss4.item()
+                loss5_list += loss5.item()
+                loss6_list += loss6.item()
+                loss7_list += loss7.item()
                 
                 # 每隔print_freq个mini-batch显示一次loss，或者当当前epoch训练结束时
                 if (i + 1) % args.print_freq == 0 or (i + 1) == trainloader_len:
                     list_len = len(loss_list) #print_freq
 
-                    print('[{0}][{1}/{2}]\t\t'
-                        '[min{3:.2f} avg{4:.4f} max{5:.2f}]\t'
-                        '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
-                        '{loss.avg:.4f}'.format(
+                    print('[{0}][{1}/{2}]'
+                        '[min{3:.2f} avg{4:.4f}]'
+                        '[l1:{5:.3f} l:{6:.3f} 3:{7:.3f} 4:{8:.3f} 5:{9:.3f}'
+                        ' 6:{10:.3f} 7:{11:.3f}] {loss.avg:.3f}'.format(
                         epoch + 1, i + 1, trainloader_len,
-                        min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len,
+                        min(loss_list), sum(loss_list) / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len, loss5_list / list_len, loss6_list/ list_len, loss7_list/ list_len,
                         loss=losses))
                     
-                    print('[{0}][{1}/{2}]\t\t'
-                        '[{3:.2f} {4:.4f} {5:.2f}]\t'
-                        '[l1:{6:.4f} l:{7:.4f} e:{8:.4f} r:{9:.4f}]\t'
-                        '{loss.avg:.4f}'.format(
+                    print('[{0}][{1}/{2}]'
+                        '[{3:.2f} {4:.4f}]'
+                        '[l1:{5:.3f} l:{6:.3f} 3:{7:.3f} 4:{8:.3f} 5:{9:.3f}'
+                        ' 6:{10:.3f} 7:{11:.3f}] {loss.avg:.3f}'.format(
                         epoch + 1, i + 1, trainloader_len,
-                        min(loss_list), sum(loss_list) / list_len, max(loss_list),
-                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len,
+                        min(loss_list), sum(loss_list) / list_len,
+                        loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len, loss5_list / list_len, loss6_list/ list_len, loss7_list/ list_len,
                         loss=losses), file=reslut_file)
                     # 清零累计的loss
                     # del loss_list[:]
@@ -300,7 +303,7 @@ if __name__ == '__main__':
                         help='the path of train images.')  # train image path
 
     # './dataset_for_debug'  './dataset'
-    parser.add_argument('--data_path_total', default='./dataset_for_debug', type=str,
+    parser.add_argument('--data_path_total', default='./dataset', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
