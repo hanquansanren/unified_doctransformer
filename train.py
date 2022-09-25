@@ -110,7 +110,9 @@ def train(args):
             if args.parallel is not None:
                 checkpoint = torch.load(args.resume, map_location=args.device) 
                 model.load_state_dict(checkpoint['model_state'])
-                # optimizer.load_state_dict(checkpoint['optimizer_state'])
+                optimizer.load_state_dict(checkpoint['optimizer_state'])
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = args.l_rate 
                 # scheduler.load_state_dict(checkpoint['scheduler_state'])
                 # print(next(model.parameters()).device)
             else:
@@ -139,7 +141,7 @@ def train(args):
     losses = AverageMeter() # 用于计数和计算平均loss
     
     loss_instance.lambda_loss = 1 # 主约束
-    loss_instance.lambda_loss_a = 0.05 # 邻域约束
+    loss_instance.lambda_loss_a = 0.1 # 邻域约束
 
     ''' load data, dataloader'''
     FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
@@ -183,8 +185,8 @@ def train(args):
 
                 optimizer.zero_grad()
                 outputs1, outputs2, output3 = model(images1, images2, w_im)
-                # outputs1和outputs2分别是是D1和D2的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-                
+                # outputs1,outputs2,output3分别是是D1和D2以及wild的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
+
                 # fourier dewarp for part3 and part4
                 rectified_img3, ref_img3 = tps_for_loss(w_im, d_im, output3)
                 rectified_img4, ref_img4 = tps_for_loss(w_im, images1, output3)
@@ -195,14 +197,14 @@ def train(args):
                 # losses calculation
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
                 loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
-                loss1 = loss1_l1 + loss1_local*loss_instance.lambda_loss_a + loss1_edge*0 + loss1_rectangles*0
-                loss2 = loss2_l1 + loss2_local*loss_instance.lambda_loss_a + loss2_edge*0 + loss2_rectangles*0
+                loss1 = loss1_l1 + loss2_l1
+                loss2 = (loss1_local + loss2_local)*loss_instance.lambda_loss_a
                 loss3 = loss_fun2(rectified_img3, ref_img3)
                 loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
                 loss5 = loss_fun2(mask2*rectified_img5, mask2*ref_img5)
                 loss6 = loss_fun2(mask2*rectified_img6, mask2*ref_img6)
                 loss7 = loss_fun2(mask1*rectified_img7, mask1*ref_img7)
-                loss = 0.1*(loss1 + loss2) + loss3 + 0.5*(loss4 + loss5) + 0.5*(loss6 + loss7)
+                loss = 0.05*loss1 + 0.0125*loss2 + loss3 + (loss4 + loss5) + 0.5*(loss6 + loss7)
 
 
                 '''vis for fourier dewarp'''
@@ -223,11 +225,12 @@ def train(args):
 
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
-                loss_l1_list += ((loss1_l1.item()+loss2_l1.item())*0.1)
-                loss_local_list += ((loss1_local.item()+loss2_local.item())*loss_instance.lambda_loss_a*0.1)
+
+                loss_l1_list +=    (loss1.item()*0.05)
+                loss_local_list += (loss2.item()*0.0125)
                 loss3_list += (loss3.item()*1)
-                loss4_list += (loss4.item()*0.5)
-                loss5_list += (loss5.item()*0.5)
+                loss4_list += (loss4.item()*1)
+                loss5_list += (loss5.item()*1)
                 loss6_list += (loss6.item()*0.5)
                 loss7_list += (loss7.item()*0.5)
                 
@@ -252,9 +255,9 @@ def train(args):
                         min(loss_list), sum(loss_list) / list_len,
                         loss_l1_list / list_len, loss_local_list / list_len, loss3_list / list_len, loss4_list / list_len, loss5_list / list_len, loss6_list/ list_len, loss7_list/ list_len,
                         loss=losses), file=reslut_file)
-                    # 清零累计的loss
-                    # del loss_list[:]
-                    # loss_l1_list = 0
+                    # 清零累计的loss 
+                    # del loss_list[:] 
+                    # loss_l1_list = 0 
                     # loss_local_list = 0
             FlatImg.saveModel_epoch(epoch, model, optimizer, scheduler)     # FlatImg.saveModel(epoch, save_path=path)
             trian_t = time.time()-begin_train  #从这里宣布结束训练当前epoch
@@ -291,19 +294,19 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.1,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=4,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=1, type=int,
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
 
-    # './synthesis_code'   './dataset/WarpDoc'  './dataset/warp0.lmdb' './dataset/train.lmdb'
+    # './synthesis_code'   './dataset/WarpDoc'  './dataset/warp0.lmdb' './dataset/train.lmdb' 
     parser.add_argument('--data_path_train', default='./dataset/warp1.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
-    # './dataset_for_debug'  './dataset'  './dataset_fast_train'
-    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
+    # './dataset_for_debug'  './dataset'  './dataset_fast_train' './dataset/biglmdb'
+    parser.add_argument('--data_path_total', default='./dataset/biglmdb', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -331,6 +334,8 @@ if __name__ == '__main__':
     # ICDAR
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/15/2022-09-20 16:40:40DDCP.pkl')
+    
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         

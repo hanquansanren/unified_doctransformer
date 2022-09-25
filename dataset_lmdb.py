@@ -42,10 +42,10 @@ class my_unified_dataset(data.Dataset):
 			self.txn = self.env.begin()
 			key_set = []
 			for self.idx, (key, value) in enumerate(self.txn.cursor()):
-				# print(key)
+				print(key)
 				key_set.append(key)
 				if ((self.idx+1)%4)==0:
-					self.image_set[self.mode][key.decode().split("_")[2]]=key_set
+					self.image_set[self.mode][key.decode().split("_")[3]]=key_set
 					key_set = []
 			print("finished data")
 		else:
@@ -95,7 +95,7 @@ class my_unified_dataset(data.Dataset):
 			mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
-			# reference_point = self.fiducal_points_lbl(reference_point)
+
 
 			# 两张合成图像，都resize到 (992,992)
 			d1=self.resize_im0(d1)
@@ -104,10 +104,10 @@ class my_unified_dataset(data.Dataset):
 			w1=self.resize_im0(w1)
 
 
-			self.check_item_vis(im=d1, lbl=pts1, idx=96)
-			self.check_item_vis(im=d2, lbl=pts2, idx=97)
-			self.check_item_vis(im=mask1, lbl=pts1, idx=98)
-			self.check_item_vis(im=mask2, lbl=pts2, idx=99)
+			# self.check_item_vis(im=d1, lbl=pts1, idx=96)
+			# self.check_item_vis(im=d2, lbl=pts2, idx=97)
+			# self.check_item_vis(im=mask1, lbl=pts1, idx=98)
+			# self.check_item_vis(im=mask2, lbl=pts2, idx=99)
 
 
 			# '''visualization point 2 for resized synthesized image and sampled control point'''
@@ -122,7 +122,6 @@ class my_unified_dataset(data.Dataset):
 			lbl2 = lbl2.transpose(2, 0, 1)
 			w1 = w1.transpose(2, 0, 1)
 			di = di.transpose(2, 0, 1)
-			# reference_point = reference_point.transpose(2, 0, 1)
 			mask1 = mask1.transpose(2, 0, 1)
 			mask2 = mask2.transpose(2, 0, 1)
 			
