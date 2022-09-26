@@ -42,7 +42,7 @@ class my_unified_dataset(data.Dataset):
 			self.txn = self.env.begin()
 			key_set = []
 			for self.idx, (key, value) in enumerate(self.txn.cursor()):
-				print(key)
+				# print(key)
 				key_set.append(key)
 				if ((self.idx+1)%4)==0:
 					self.image_set[self.mode][key.decode().split("_")[3]]=key_set
@@ -91,8 +91,8 @@ class my_unified_dataset(data.Dataset):
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
 
-			mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3)
-			mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3)
+			mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3), (240, 2)
+			mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3), (240, 2)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
 
@@ -110,10 +110,10 @@ class my_unified_dataset(data.Dataset):
 			# self.check_item_vis(im=mask2, lbl=pts2, idx=99)
 
 
-			# '''visualization point 2 for resized synthesized image and sampled control point'''
+			# # '''visualization point 2 for resized synthesized image and sampled control point'''
 			# self.check_item_vis(d1, lbl1, 25)
 			# self.check_item_vis(d2, lbl2, 26)
-			# self.check_item_vis(di, reference_point, 27)
+			# self.check_item_vis(di, None, 27)
 			# self.check_item_vis(w1, None, 28)
 			
 			d1 = d1.transpose(2, 0, 1)
@@ -215,7 +215,7 @@ class my_unified_dataset(data.Dataset):
 		pts = pt_edge.round().astype(int)
 
 		mask = cv2.fillPoly(img, [pts], (1, 1, 1))
-		cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
+		# cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
 		return mask, pts
 
 	def check_item_vis(self, im=None, lbl=None, idx=None):
@@ -231,24 +231,35 @@ class my_unified_dataset(data.Dataset):
 			im.convert('RGB').save("./data_vis/img_vis{}.png".format(idx))
 		
 		if lbl is not None:
-			# fig, ax = plt.subplots(figsize = (w,h),facecolor='black')
-			# ax.imshow(im)
-			# ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
-			# ax.axis('off')
-			# plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
-			# # plt.tight_layout()
-			# plt.savefig('./data_vis/point_vis{}.png'.format(idx))
-			# plt.close()
-			# plt.figure(figsize = (w,h),facecolor='white')
-			plt.figure(figsize = (w, h),facecolor='white')
-			plt.imshow(im)
-			# plt.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
-			plt.scatter(lbl[:,0].flatten(),lbl[:,1].flatten(),s=1.2,c='red',alpha=1)
-			plt.axis('off')
-			plt.margins(0,0)
-			plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
-			plt.savefig('./data_vis/point_vis{}.png'.format(idx))
-			plt.close()
+			if lbl.ndim==2:
+				# fig, ax = plt.subplots(figsize = (w,h),facecolor='black')
+				# ax.imshow(im)
+				# ax.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+				# ax.axis('off')
+				# plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+				# # plt.tight_layout()
+				# plt.savefig('./data_vis/point_vis{}.png'.format(idx))
+				# plt.close()
+				# plt.figure(figsize = (w,h),facecolor='white')
+				plt.figure(figsize = (w, h),facecolor='white')
+				plt.imshow(im)
+				# plt.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+				plt.scatter(lbl[:,0].flatten(),lbl[:,1].flatten(),s=1.2,c='red',alpha=1)
+				plt.axis('off')
+				plt.margins(0,0)
+				plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+				plt.savefig('./data_vis/point_vis{}.png'.format(idx))
+				plt.close()
+			elif lbl.ndim==3:
+				plt.figure(figsize = (w, h),facecolor='white')
+				plt.imshow(im)
+				plt.scatter(lbl[:,:,0].flatten(),lbl[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+				# plt.scatter(lbl[:,0].flatten(),lbl[:,1].flatten(),s=1.2,c='red',alpha=1)
+				plt.axis('off')
+				plt.margins(0,0)
+				plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+				plt.savefig('./data_vis/point_vis{}.png'.format(idx))
+				plt.close()	
 
 	def checkimg_availability(self):
 		if self.mode == 'train' or self.mode == 'validate':

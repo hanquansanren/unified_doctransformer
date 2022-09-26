@@ -9,6 +9,7 @@ ICDAR2021/
 simple_test/__pycache__/
 fdr_vis/
 flat/
+runs/
 gif
 accuracy_log
 *.gz

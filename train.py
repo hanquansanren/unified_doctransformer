@@ -9,7 +9,9 @@ import time
 import re
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 workdir=os.getcwd()
+from torch.utils.tensorboard import SummaryWriter
 from network import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
 import utilsV4 as utils
 from utilsV4 import AverageMeter
@@ -18,8 +20,46 @@ from loss import Losses
 import torch.nn.functional as F
 import torch
 from torch.utils import data
+import random
+import torchvision
 from os.path import join as pjoin
 from intermediate_dewarp_loss import get_dewarped_intermediate_result
+
+def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
+    '''
+    images: [6, 3, 992, 992]
+    labels: [6, 2, 31, 31]
+    pred:   [6, 2, 31, 31]
+    grid_samples = 8
+    inp_tag = 'Train Pred1 pts'
+    gt_tag = 'Train WCs'
+    pred_tag = 'none'
+    '''
+    idxs=torch.LongTensor(random.sample(range(images.shape[0]), min(grid_samples,images.shape[0])))
+    # idx=tensor([2, 3, 5, 1, 4, 0])
+    ax_list=[]
+    for idx in idxs:
+        fig, ax = plt.subplots(figsize = (9.92,9.92),facecolor='white')
+        ax.imshow(np.transpose(images[idx].cpu().int(), [1, 2, 0]))
+        if labels is not None:
+            ax.scatter(np.transpose(labels[idx].cpu(), [1, 2, 0])[:,:,0].flatten(), np.transpose(labels[idx].cpu(), [1, 2, 0])[:,:,1].flatten(),s=1.2,c='red',alpha=1)
+        ax.scatter(np.transpose(pred[idx].detach().cpu(), [1, 2, 0])[:,:,0].flatten(), np.transpose(pred[idx].detach().cpu(), [1, 2, 0])[:,:,1].flatten(),s=1.2,c='green',alpha=1)
+        ax.axis('off')
+        plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
+        plt.savefig('./point_vis{}.png'.format(idx))
+        fig.canvas.draw()
+        fig_str = fig.canvas.tostring_rgb()
+        data = np.frombuffer(fig_str, dtype=np.uint8).reshape((int(992), -1, 3)).astype(np.uint8)
+        ax_list.append(data)
+        plt.close()
+
+    np2tensor=torch.from_numpy(np.array(ax_list).transpose(0, 3, 1, 2)) # ([6, 3, 992, 992])
+    grid_inp = torchvision.utils.make_grid(np2tensor[idxs], normalize=False, scale_each=True , padding=0) # 拼图
+    # output: tensor[3, 992, 5952]
+    writer.add_image(inp_tag, grid_inp, global_step)
+    
+
+
 
 def train(args):
     ''' log writer '''
@@ -83,7 +123,7 @@ def train(args):
     else:
         raise Exception(args.optimizer,'<-- please choice optimizer')
     # LR Scheduler 
-    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 90, 150, 200], gamma=0.5)
 
     ''' load checkpoint '''
@@ -155,18 +195,23 @@ def train(args):
         full_data_path = pjoin(args.data_path_total, k)
         trainloader_list.append(FlatImg.loadTrainData('train', full_data_path, is_DDP = args.is_DDP))
     print(lmdb_list)
-    trainloader_len = len(trainloader_list[0][0])
+    trainloader_len = len(trainloader_list[0][0]) # 这里有两个[0][0]是因为list中存的是(trainloader, train_sampler)
     print("Total number of mini-batch in each epoch: ", trainloader_len)
     
+    '''load tensorboard'''
+    writer = SummaryWriter(comment='train')
+
+
 
     if args.schema == 'train':
         train_time = AverageMeter()
+        global_step=0
         for epoch in range(epoch_start, args.n_epoch):
             print('* lambda_loss :'+str(loss_instance.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']))
             print('* lambda_loss :'+str(loss_instance.lambda_loss)+'\t'+'learning_rate :'+str(optimizer.param_groups[0]['lr']), file=reslut_file)
             loss_list = []
             loss_l1_list, loss_local_list, loss3_list, loss4_list, loss5_list, loss6_list, loss7_list = 0,0,0,0,0,0,0
-
+            
             begin_train = time.time() #从这里正式开始训练当前epoch
             if args.is_DDP:
                 trainloader_list[0][1].set_epoch(epoch)
@@ -233,6 +278,21 @@ def train(args):
                 loss5_list += (loss5.item()*1)
                 loss6_list += (loss6.item()*0.5)
                 loss7_list += (loss7.item()*0.5)
+                global_step+=1
+
+                show_wc_tnsboard(global_step, writer, images1, labels1, outputs1, 8,'Train Pred1 d1 pts', 'no', 'no')
+                show_wc_tnsboard(global_step, writer, w_im, None, output3, 8,'Train Pred1 wild pts', 'no', 'no')
+                writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
+                writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
+                writer.add_scalar('loss3 /train', loss3_list/(i+1), global_step)
+                writer.add_scalar('loss4 /train', loss4_list/(i+1), global_step)
+                writer.add_scalar('loss6 /train', loss6_list/(i+1), global_step)
+                writer.add_scalar('total Loss/train', losses.avg, global_step)
+
+               
+                
+
+
                 
                 # 每隔print_freq个mini-batch显示一次loss，或者当当前epoch训练结束时
                 if (i + 1) % args.print_freq == 0 or (i + 1) == trainloader_len:
@@ -294,7 +354,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=4,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.5,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=1, type=int,
@@ -306,7 +366,7 @@ if __name__ == '__main__':
                         help='the path of train images.')  # train image path
 
     # './dataset_for_debug'  './dataset'  './dataset_fast_train' './dataset/biglmdb'
-    parser.add_argument('--data_path_total', default='./dataset/biglmdb', type=str,
+    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -335,8 +395,10 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/15/2022-09-20 16:40:40DDCP.pkl')
+    # big 
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-25/2022-09-25 21:03:54/5/2022-09-25 21:03:54DDCP.pkl')
     
-    parser.add_argument('--parallel', default='0123', type=list,
+    parser.add_argument('--parallel', default='123', type=list,
                         help='choice the gpu id for parallel ')
                         
     args = parser.parse_args()
