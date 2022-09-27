@@ -12,10 +12,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 workdir=os.getcwd()
 from torch.utils.tensorboard import SummaryWriter
-from network import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
+from networkV2 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
 import utilsV4 as utils
 from utilsV4 import AverageMeter
-from dataset_lmdb import my_unified_dataset
+from dataset_lmdbV2 import my_unified_dataset
 from loss import Losses
 import torch.nn.functional as F
 import torch
@@ -35,7 +35,7 @@ def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_ta
     gt_tag = 'Train WCs'
     pred_tag = 'none'
     '''
-    idxs=torch.LongTensor(random.sample(range(images.shape[0]), min(grid_samples,images.shape[0])))
+    idxs=torch.LongTensor(random.sample(range(min(grid_samples,images.shape[0])), min(grid_samples,images.shape[0])))
     # idx=tensor([2, 3, 5, 1, 4, 0])
     ax_list=[]
     for idx in idxs:
@@ -215,19 +215,20 @@ def train(args):
                 trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (images1, labels1, images2, labels2, w_im, d_im, mask1, mask2) in enumerate(trainloader_list[epoch%1][0]):
+            for i, (images1, labels1, images2, labels2) in enumerate(trainloader_list[epoch%1][0]):
                 # print("get",images1.size()) # [32,3,992,992]
                 images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
                 images2 = images2.cuda()
                 labels2 = labels2.cuda() 
-                w_im = w_im.cuda()
-                d_im = d_im.cuda() 
-                mask1 = mask1.cuda()
-                mask2 = mask2.cuda()            
+                # w_im = w_im.cuda()
+                # d_im = d_im.cuda() 
+                # mask1 = mask1.cuda()
+                # mask2 = mask2.cuda()            
 
                 optimizer.zero_grad()
-                outputs1, outputs2, output3 = model(images1, images2, w_im)
+                # outputs1, outputs2, output3 = model(images1, images2, w_im)
+                outputs1, outputs2 = model(images1, images2)
                 # outputs1,outputs2,output3分别是是D1和D2以及wild的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
 
                 # fourier dewarp for part3 and part4
@@ -280,7 +281,7 @@ def train(args):
                 global_step+=1
                 if (global_step-1)%5==0:
                     show_wc_tnsboard(global_step, writer, images1, labels1, outputs1, 8,'Train d1 pts', 'no', 'no')
-                    show_wc_tnsboard(global_step, writer, w_im, None, output3, 8,'Train wild pts', 'no', 'no')
+                    # show_wc_tnsboard(global_step, writer, w_im, None, output3, 8,'Train wild pts', 'no', 'no')
                     writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
                     writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
                     writer.add_scalar('loss3 /train', loss3_list/(i+1), global_step)
@@ -367,7 +368,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=6,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=16,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
