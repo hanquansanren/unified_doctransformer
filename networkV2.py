@@ -250,7 +250,7 @@ class DilatedResnet(nn.Module):
 	# def cat(self, trans, down):
 	# 	return torch.cat([trans, down], dim=1)
 
-	def forward(self, images1, images2, w_im=None):
+	def forward(self, images1, images2=None, w_im=None):
 		'''part 1'''
 		resnet_head1 = self.resnet_head(images1) # 图示的第一层
 		resnet_down1 = self.resnet_down(resnet_head1) # 图示的中四层
@@ -266,19 +266,19 @@ class DilatedResnet(nn.Module):
 		bridge1 = self.bridge_concate(bridge_concate1)# torch.Size([1, 128, 31, 31]) # 第六层，输出层 256->128
 		out_regress1 = self.out_regress(bridge1) # torch.Size([1, 2, 31, 31]) #第七八层，包含两次卷积 128->32->2 
 		
-		'''part 2'''
-		resnet_head2 = self.resnet_head(images2) # 图示的第一层
-		resnet_down2 = self.resnet_down(resnet_head2) # 图示的中四层
+		# '''part 2'''
+		# resnet_head2 = self.resnet_head(images2) # 图示的第一层
+		# resnet_down2 = self.resnet_down(resnet_head2) # 图示的中四层
 
-		bridge_21 = self.bridge_1(resnet_down2)
-		bridge_22 = self.bridge_2(resnet_down2)
-		bridge_23 = self.bridge_3(resnet_down2)
-		bridge_24 = self.bridge_4(resnet_down2)
-		bridge_25 = self.bridge_5(resnet_down2)
-		bridge_26 = self.bridge_6(resnet_down2)
-		bridge_concate2 = torch.cat([bridge_21, bridge_22, bridge_23, bridge_24, bridge_25, bridge_26], dim=1)
-		bridge2 = self.bridge_concate(bridge_concate2)
-		out_regress2 = self.out_regress(bridge2)
+		# bridge_21 = self.bridge_1(resnet_down2)
+		# bridge_22 = self.bridge_2(resnet_down2)
+		# bridge_23 = self.bridge_3(resnet_down2)
+		# bridge_24 = self.bridge_4(resnet_down2)
+		# bridge_25 = self.bridge_5(resnet_down2)
+		# bridge_26 = self.bridge_6(resnet_down2)
+		# bridge_concate2 = torch.cat([bridge_21, bridge_22, bridge_23, bridge_24, bridge_25, bridge_26], dim=1)
+		# bridge2 = self.bridge_concate(bridge_concate2)
+		# out_regress2 = self.out_regress(bridge2)
 
 		# '''part 3'''
 		# resnet_head3 = self.resnet_head(w_im) # 图示的第一层
@@ -325,7 +325,8 @@ class DilatedResnet(nn.Module):
 		
 		
 		# return out_regress1, out_regress2, out_regress3
-		return out_regress1, out_regress2
+		# return out_regress1, out_regress2
+		return out_regress1
 
 
 

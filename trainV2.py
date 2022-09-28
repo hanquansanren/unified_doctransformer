@@ -27,9 +27,9 @@ from intermediate_dewarp_loss import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
     '''
-    images: [6, 3, 992, 992]
-    labels: [6, 2, 31, 31]
-    pred:   [6, 2, 31, 31]
+    images: [16, 3, 992, 992]
+    labels: [16, 2, 31, 31]
+    pred:   [16, 2, 31, 31]
     grid_samples = 8
     inp_tag = 'Train Pred1 pts'
     gt_tag = 'Train WCs'
@@ -220,7 +220,9 @@ def train(args):
                 images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
                 images2 = images2.cuda()
-                labels2 = labels2.cuda() 
+                labels2 = labels2.cuda()
+                double_images = torch.cat((images1, images2), 0)
+                double_labels = torch.cat((labels1, labels2), 0)
                 # w_im = w_im.cuda()
                 # d_im = d_im.cuda() 
                 # mask1 = mask1.cuda()
@@ -228,7 +230,7 @@ def train(args):
 
                 optimizer.zero_grad()
                 # outputs1, outputs2, output3 = model(images1, images2, w_im)
-                outputs1, outputs2 = model(images1, images2)
+                double_outputs = model(double_images)
                 # outputs1,outputs2,output3分别是是D1和D2以及wild的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
 
                 # fourier dewarp for part3 and part4
@@ -239,10 +241,11 @@ def train(args):
                 # rectified_img7, ref_img7 = tps_for_loss(images2, images1, outputs2)
 
                 # losses calculation
-                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
-                loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
-                loss1 = loss1_l1 + loss2_l1
-                loss2 = (loss1_local + loss2_local)*loss_instance.lambda_loss_a
+                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(double_outputs, double_labels)
+                # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
+                # loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
+                loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
+                # loss2 = loss2_l1 + (loss2_local)*loss_instance.lambda_loss_a
                 # loss3 = loss_fun2(rectified_img3, ref_img3)
                 # loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
                 # loss5 = loss_fun2(mask2*rectified_img5, mask2*ref_img5)
@@ -250,7 +253,8 @@ def train(args):
                 # loss7 = loss_fun2(mask1*rectified_img7, mask1*ref_img7)
                 # loss = 0.05*loss1 + 0.0125*loss2 + loss3 + (loss4 + loss5) + 0.5*(loss6 + loss7)
                 # only DDCP
-                loss = loss1 + loss2
+                # loss = loss1 + loss2
+                loss = loss1
 
                 '''vis for fourier dewarp'''
                 # images1 = images1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
@@ -265,22 +269,24 @@ def train(args):
                 # refe4_img = refe4_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
                 # cv2.imwrite('./mark_00001.png', refe4_img)
 
-                loss.backward()
+                loss1.backward()
+                # loss2.backward()
                 optimizer.step()
 
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
 
                 loss_l1_list +=    (loss1.item()*1)
-                loss_local_list += (loss2.item()*1)
+                # loss_local_list += (loss2.item()*1)
+                loss_local_list += (loss1_l1.item()*1)
                 # loss3_list += (loss3.item()*1)
                 # loss4_list += (loss4.item()*1)
                 # loss5_list += (loss5.item()*1)
                 # loss6_list += (loss6.item()*0.5)
                 # loss7_list += (loss7.item()*0.5)
                 global_step+=1
-                if (global_step-1)%5==0:
-                    show_wc_tnsboard(global_step, writer, images1, labels1, outputs1, 8,'Train d1 pts', 'no', 'no')
+                if (global_step-1)%20==0:
+                    show_wc_tnsboard(global_step, writer, images1, labels1, double_outputs[0:16], 8,'Train d1 pts', 'no', 'no')
                     # show_wc_tnsboard(global_step, writer, w_im, None, output3, 8,'Train wild pts', 'no', 'no')
                     writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
                     writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
@@ -348,10 +354,10 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.004,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0002,
                         help='Learning Rate')
 
-    parser.add_argument('--print-freq', '-p', default=1, type=int,
+    parser.add_argument('--print-freq', '-p', default=10, type=int,
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
 
@@ -368,7 +374,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=16,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=20,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -390,9 +396,9 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/15/2022-09-20 16:40:40DDCP.pkl')
     # big 
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-25/2022-09-25 21:03:54/5/2022-09-25 21:03:54DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 11:22:11 @2022-09-27/19/2022-09-27@2022-09-28 11:22:11DDCP.pkl')
     
-    parser.add_argument('--parallel', default='123', type=list,
+    parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         
     args = parser.parse_args()
