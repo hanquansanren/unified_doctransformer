@@ -1,10 +1,11 @@
 '''
-2022/9/6
+2022/9/30
 Weiguang Zhang
-V2 means DDCP only 
+V3 means DDCP+FDRNet
 '''
 import os
 import pickle
+import math
 from os.path import join as pjoin
 import collections
 from sys import maxsize
@@ -80,24 +81,13 @@ class my_unified_dataset(data.Dataset):
 			# self.check_item_vis(di, None, 3)
 			# self.check_item_vis(w1, None, 4)
 
-			'''参考点生成'''
-			# xs = torch.linspace(0, self.model_input_size[1], steps=61)
-			# ys = torch.linspace(0, self.model_input_size[0], steps=61)
-			# x, y = torch.meshgrid(xs, ys, indexing='xy')
-			# reference_point = torch.dstack([x, y])
-
-			# xs = np.linspace(0, self.model_input_size[1], num=61)
-			# ys = np.linspace(0, self.model_input_size[0], num=61)
-			# x, y = np.meshgrid(xs, ys, indexing='xy')
-			# reference_point = np.dstack([x, y])			
-
 
 			'''resize images, labels and tansform to tensor'''
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
 
-			# mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3), (240, 2)
-			# mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3), (240, 2)
+			mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3), (240, 2)
+			mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3), (240, 2)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
 
@@ -105,8 +95,8 @@ class my_unified_dataset(data.Dataset):
 			# 两张合成图像，都resize到 (992,992)
 			d1=self.resize_im0(d1)
 			d2=self.resize_im0(d2)
-			# di=self.resize_im0(di)
-			# w1=self.resize_im0(w1)
+			di=self.resize_im0(di)
+			w1=self.resize_im0(w1)
 
 
 			# self.check_item_vis(im=d1, lbl=pts1, idx=96)
@@ -125,25 +115,25 @@ class my_unified_dataset(data.Dataset):
 			d2 = d2.transpose(2, 0, 1)
 			lbl1 = lbl1.transpose(2, 0, 1)
 			lbl2 = lbl2.transpose(2, 0, 1)
-			# w1 = w1.transpose(2, 0, 1)
-			# di = di.transpose(2, 0, 1)
-			# mask1 = mask1.transpose(2, 0, 1)
-			# mask2 = mask2.transpose(2, 0, 1)
+			w1 = w1.transpose(2, 0, 1)
+			di = di.transpose(2, 0, 1)
+			mask1 = mask1.transpose(2, 0, 1)
+			mask2 = mask2.transpose(2, 0, 1)
 			
 			d1 = torch.from_numpy(d1).double() # torch.float32 torch.Size([3, 992, 992])
 			lbl1 = torch.from_numpy(lbl1).double()    # torch.float64 torch.Size([2, 31, 31])
 			d2 = torch.from_numpy(d2).double() # torch.float32 torch.Size([3, 992, 992])
 			lbl2 = torch.from_numpy(lbl2).double()    # torch.float64 torch.Size([2, 31, 31])
-			# w1 = torch.from_numpy(w1).double()     # torch.float32 torch.Size([3, 992, 992])
-			# di = torch.from_numpy(di).double()    # torch.float32 torch.Size([3, 992, 992])
-			# mask1 = torch.from_numpy(mask1).double()
-			# mask2 = torch.from_numpy(mask2).double()
+			w1 = torch.from_numpy(w1).double()     # torch.float32 torch.Size([3, 992, 992])
+			di = torch.from_numpy(di).double()    # torch.float32 torch.Size([3, 992, 992])
+			mask1 = torch.from_numpy(mask1).double()
+			mask2 = torch.from_numpy(mask2).double()
 
 
 
 			# print('finished dataset preparation')
-			# return d1, lbl1, d2, lbl2, w1, di, mask1, mask2
-			return d1, lbl1, d2, lbl2
+			return d1, lbl1, d2, lbl2, w1, di, mask1, mask2
+			# return d1, lbl1, d2, lbl2
 
 	def __len__(self):
 		if self.mode == 'test':
@@ -161,6 +151,16 @@ class my_unified_dataset(data.Dataset):
 		return im
 
 	def resize_im0(self, im):
+		try:
+			# im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+			im = cv2.resize(im, self.model_input_size, interpolation=cv2.INTER_LINEAR) 
+			# im = cv2.resize(im, (496, 496), interpolation=cv2.INTER_LINEAR)
+		except:
+			pass
+
+		return im
+
+	def resize_im1(self, im):
 		try:
 			im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 			im = cv2.resize(im, self.model_input_size, interpolation=cv2.INTER_LINEAR) 
@@ -220,7 +220,8 @@ class my_unified_dataset(data.Dataset):
 		pts = pt_edge.round().astype(int)
 
 		mask = cv2.fillPoly(img, [pts], (1, 1, 1))
-		# cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
+		self.location_mark(img, pts, (0, 0, 255))
+		cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
 		return mask, pts
 
 	def check_item_vis(self, im=None, lbl=None, idx=None):
@@ -276,4 +277,11 @@ class my_unified_dataset(data.Dataset):
 					print("bug image:", im_name)
 					# os.remove(digital_im_path)
 		print('all images is well prepared')
+
+	def location_mark(self, img, location, color=(0, 0, 255)):
+		stepSize = 0
+		for l in location.astype(np.int64).reshape(-1, 2):
+			cv2.circle(img,
+						(l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
+		return img
 

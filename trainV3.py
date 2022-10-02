@@ -1,22 +1,23 @@
 '''
 2022/9/6
 Weiguang Zhang
-V2 means DDCP only 
+V3 means DDCP+FDRNet
 '''
 import os, sys
 import argparse
 from tkinter.messagebox import NO
 import time
 import re
+import math
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 workdir=os.getcwd()
 from torch.utils.tensorboard import SummaryWriter
-from networkV2 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
+from networkV3 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
 import utilsV4 as utils
 from utilsV4 import AverageMeter
-from dataset_lmdbV2 import my_unified_dataset
+from dataset_lmdbV3 import my_unified_dataset
 from loss import Losses
 import torch.nn.functional as F
 import torch
@@ -59,7 +60,12 @@ def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_ta
     # output: tensor[3, 992, 5952]
     writer.add_image(inp_tag, grid_inp, global_step)
     
-
+def location_mark(img, location, color=(0, 0, 255)):
+    stepSize = 0
+    for l in location.astype(np.int64).reshape(-1, 2):
+        cv2.circle(img,
+                    (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
+    return img
 
 
 def train(args):
@@ -80,9 +86,10 @@ def train(args):
     n_classes = 2
     model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)
     model.double()
-    model_val = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)
-    model_val.double()
-    # tps_for_loss = get_dewarped_intermediate_result()
+    # model_val = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)
+    # model_val.double()
+    tps_for_loss = get_dewarped_intermediate_result()
+    tps_for_loss.double()
 
     ''' load device '''
     device_ids_real = list(map(int, args.parallel)) # ['2','3'] -> [2,3] 字符串批量转整形，再转生成器，再转数组 
@@ -107,14 +114,14 @@ def train(args):
     elif args.parallel is not None:
         model = model.to(args.device) # model.cuda(args.device) or model.cuda() # 模型统一移动到第一块GPU上。需要注意的是，对于模型（nn.module）来说，返回值值并非是必须的，而对于数据（tensor）来说，务必需要返回值。此处选择了比较保守的，带有返回值的统一写法
         model = torch.nn.DataParallel(model, device_ids=device_ids_visual_list) # device_ids定义了并行模式下，模型可以运行的多台机器，该函数不光支持多GPU，同时也支持多CPU，因此需要model.to()来指定具体的设备。
-        # tps_for_loss = tps_for_loss.to(args.device)
+        tps_for_loss = tps_for_loss.to(args.device)
         # tps_for_loss = torch.nn.DataParallel(tps_for_loss, device_ids=device_ids_visual_list)
         print('The main device is in: ',next(model.parameters()).device)
     else:
         args.device = torch.device('cpu')
         model=model.to(args.device) 
         print('The main device is in: ',next(model.parameters()).device)
-    model_val.cuda()
+    # model_val.cuda()
 
     ''' load optimizer '''
     if args.optimizer == 'SGD':
@@ -152,8 +159,8 @@ def train(args):
                 checkpoint = torch.load(args.resume, map_location=args.device) 
                 model.load_state_dict(checkpoint['model_state'])
                 optimizer.load_state_dict(checkpoint['optimizer_state'])
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = args.l_rate 
+                # for param_group in optimizer.param_groups:
+                #     param_group["lr"] = args.l_rate 
                 # scheduler.load_state_dict(checkpoint['scheduler_state'])
                 # print(next(model.parameters()).device)
             else:
@@ -187,7 +194,7 @@ def train(args):
     ''' load data, dataloader'''
     FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
                             data_path = args.data_path_train, data_path_test=args.data_path_test,\
-                            model = model, model_validation=model_val,\
+                            model = model, model_validation=None,\
                             optimizer = optimizer, reslut_file=reslut_file) 
     FlatImg.loadTestData()
     lmdb_list = utils.get_total_lmdb(args.data_path_total)
@@ -216,79 +223,87 @@ def train(args):
                 trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (images1, labels1, images2, labels2) in enumerate(trainloader_list[epoch%1][0]):
+            for i, (images1, labels1, images2, labels2, w_im, d_im, mask1, mask2) in enumerate(trainloader_list[epoch%1][0]):
                 # print("get",images1.size()) # [32,3,992,992]
                 images1 = images1.cuda() # 后面康康要不要改成to，不知道会不会影响并行
                 labels1 = labels1.cuda()
                 images2 = images2.cuda()
                 labels2 = labels2.cuda()
-                double_images = torch.cat((images1, images2), 0)
-                double_labels = torch.cat((labels1, labels2), 0)
-                # w_im = w_im.cuda()
-                # d_im = d_im.cuda() 
-                # mask1 = mask1.cuda()
-                # mask2 = mask2.cuda()            
+                w_im = w_im.cuda()
+                d_im = d_im.cuda() 
+                mask1 = mask1.cuda()
+                mask2 = mask2.cuda()   
+
+                triple_images = torch.cat((images1, images2, w_im), 0) # [3b, 3, 992, 992]
+                double_labels = torch.cat((labels1, labels2), 0) # [2b, 2, 31, 31]
 
                 optimizer.zero_grad()
-                # outputs1, outputs2, output3 = model(images1, images2, w_im)
-                double_outputs = model(double_images)
+                triple_outputs = model(triple_images) # (3*args.batch_size, 2, 31, 31) # [18, 2, 31, 31]
                 # outputs1,outputs2,output3分别是是D1和D2以及wild的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-
-                # fourier dewarp for part3 and part4
-                # rectified_img3, ref_img3 = tps_for_loss(w_im, d_im, output3)
-                # rectified_img4, ref_img4 = tps_for_loss(w_im, images1, output3)
-                # rectified_img5, ref_img5 = tps_for_loss(w_im, images2, output3)
-                # rectified_img6, ref_img6 = tps_for_loss(images1, images2, outputs1)
-                # rectified_img7, ref_img7 = tps_for_loss(images2, images1, outputs2)
-
                 # losses calculation
-                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(double_outputs, double_labels)
-                # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(outputs1, labels1)
-                # loss2_l1, loss2_local, loss2_edge, loss2_rectangles = loss_fun(outputs2, labels2)
+   
+                # fourier dewarp for part3 and part4
+                rectified_img3, ref_img3 = tps_for_loss(w_im, d_im, triple_outputs[2*args.batch_size:3*args.batch_size])
+                # input: w_im: [2, 3, 992, 992] d_im:[2, 3, 992, 992] pred: [2, 2, 31, 31]
+                # output:rectified_img3 [2, 3, 992, 992];  ref_img3 [2, 3, 992, 992]
+
+                # rectified_img4, ref_img4 = tps_for_loss(w_im, triple_images[0:args.batch_size], triple_outputs[2*args.batch_size:], ptd1=labels1)
+                rectified_img4, ref_img4 = tps_for_loss(w_im, triple_images[0:args.batch_size], labels1, ptd1=labels1)
+                rectified_img5, ref_img5 = tps_for_loss(w_im, triple_images[args.batch_size:2*args.batch_size], triple_outputs[2*args.batch_size:], ptd1=labels2)
+                # rectified_img6, ref_img6 = tps_for_loss(images1, images2, triple_outputs[0:args.batch_size])
+                # rectified_img7, ref_img7 = tps_for_loss(images2, images1, triple_outputs[args.batch_size:2*args.batch_size])
+                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], double_labels)
+                
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
-                # loss2 = loss2_l1 + (loss2_local)*loss_instance.lambda_loss_a
-                # loss3 = loss_fun2(rectified_img3, ref_img3)
-                # loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
-                # loss5 = loss_fun2(mask2*rectified_img5, mask2*ref_img5)
+                loss3 = loss_fun2(rectified_img3, ref_img3)
+                loss4 = loss_fun2(mask1*rectified_img4, mask1*ref_img4)
+                loss5 = loss_fun2(mask2*rectified_img5, mask2*ref_img5)
                 # loss6 = loss_fun2(mask2*rectified_img6, mask2*ref_img6)
                 # loss7 = loss_fun2(mask1*rectified_img7, mask1*ref_img7)
-                # loss = 0.05*loss1 + 0.0125*loss2 + loss3 + (loss4 + loss5) + 0.5*(loss6 + loss7)
-                # only DDCP
-                # loss = loss1 + loss2
-                loss = loss1
-
+                # loss = loss1 + (loss3 + loss4 + loss5) + 0.5*(loss6 + loss7)
+                loss = loss1 + (loss3 + loss4 + loss5)
                 '''vis for fourier dewarp'''
-                # images1 = images1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                # images1 = images1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                # cv2.imwrite('./mark_00011.png', images1)
-                # flatten_img = mask1*rectified_img4
-                # flatten_img = flatten_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                # flatten_img = flatten_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                # cv2.imwrite('./mark_00000.png', flatten_img)
-                # refe4_img = mask1*ref_img4
-                # refe4_img = refe4_img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                # refe4_img = refe4_img.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                # cv2.imwrite('./mark_00001.png', refe4_img)
 
-                loss1.backward()
-                # loss2.backward()
+                t1=time.time()
+                d1_show = images1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                d1_show = d1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_origin_d1.png', d1_show)
+                w1_show = w_im[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                w1_show = w1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_origin_w1.png', w1_show)
+                triple_outputs_show = triple_outputs[2*args.batch_size:3*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
+                perturbed_img_mark = location_mark(w1_show.copy(), triple_outputs_show, (0, 0, 255))
+                cv2.imwrite('./mark_origin_w1p.png', perturbed_img_mark)
+
+
+                flatten_img = rectified_img4[0]
+                flatten_img_show = flatten_img.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                flatten_img_show = flatten_img_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_pred_w1.png', flatten_img_show)
+                refe4_img = ref_img4[0]
+                refe4_img_show = refe4_img.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                refe4_img_show = refe4_img_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                cv2.imwrite('./mark_ref_d1.png', refe4_img_show)
+                print(time.time()-t1)
+
+                loss.backward()
                 optimizer.step()
 
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
 
-                loss_l1_list +=    (loss1.item()*1)
-                # loss_local_list += (loss2.item()*1)
-                loss_local_list += (loss1_l1.item()*1)
-                # loss3_list += (loss3.item()*1)
-                # loss4_list += (loss4.item()*1)
-                # loss5_list += (loss5.item()*1)
-                # loss6_list += (loss6.item()*0.5)
-                # loss7_list += (loss7.item()*0.5)
+                loss_l1_list +=    (loss1_l1.item()*1)
+                loss_local_list += (loss1_local.item()*loss_instance.lambda_loss_a)
+                loss3_list += (loss3.item()*1)
+                loss4_list += (loss4.item()*1)
+                loss5_list += (loss5.item()*1)
+                loss6_list += (loss3.item()*0.5)
+                loss7_list += (loss3.item()*0.5)
                 global_step+=1
                 if (global_step-1)%20==0:
-                    show_wc_tnsboard(global_step, writer, images1, labels1, double_outputs[0:16], 8,'Train d1 pts', 'no', 'no')
-                    # show_wc_tnsboard(global_step, writer, w_im, None, output3, 8,'Train wild pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, images1, labels1, triple_outputs[0:args.batch_size], 8,'Train d1 pts', 'no', 'no')
+                    # show_wc_tnsboard(global_step, writer, images2, labels2, triple_outputs[args.batch_size:2*args.batch_size], 8,'Train d2 pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, w_im, None, triple_outputs[2*args.batch_size:3*args.batch_size], 8,'Train wild pts', 'no', 'no')
                     writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
                     writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
                     writer.add_scalar('loss3 /train', loss3_list/(i+1), global_step)
@@ -331,9 +346,6 @@ def train(args):
             print("Total epoches training elapsed time:{:.2f} minutes ".format(train_time.sum/60) )
             scheduler.step(metrics=min(loss_list))
 
-            # model.eval()
-            # FlatImg.validateOrTestModelV3(epoch, validate_test='v', model=model)
-
     m, s = divmod(train_time.sum, 60)
     h, m = divmod(m, 60)
     print("All Train Time : %02d:%02d:%02d\n" % (h, m, s))
@@ -367,7 +379,7 @@ if __name__ == '__main__':
                         help='the path of train images.')  # train image path
 
     # './dataset_for_debug'  './dataset'  './dataset_fast_train' './dataset/biglmdb'
-    parser.add_argument('--data_path_total', default='./dataset/biglmdb', type=str,
+    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -375,7 +387,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=20,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -390,14 +402,12 @@ if __name__ == '__main__':
 
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
     
-    # 开局39，省时省力
-    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-15/2022-09-15 15:40:12 @2022-09-15/83/2022-09-15@2022-09-15 15:40:12DDCP.pkl')
     # ICDAR
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/15/2022-09-20 16:40:40DDCP.pkl')
     # big 
-    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 11:22:11 @2022-09-27/19/2022-09-27@2022-09-28 11:22:11DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/89/2022-09-28 17:04:41DDCP.pkl')
     
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')

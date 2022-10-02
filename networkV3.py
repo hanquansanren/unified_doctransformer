@@ -1,7 +1,7 @@
 '''
 2022/9/30
 Weiguang Zhang
-V2 means DDCP only
+V3 means DDCP+FDRNet
 '''
 
 import math
