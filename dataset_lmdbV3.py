@@ -220,8 +220,8 @@ class my_unified_dataset(data.Dataset):
 		pts = pt_edge.round().astype(int)
 
 		mask = cv2.fillPoly(img, [pts], (1, 1, 1))
-		self.location_mark(img, pts, (0, 0, 255))
-		cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
+		# self.location_mark(img, pts, (0, 0, 255))
+		# cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
 		return mask, pts
 
 	def check_item_vis(self, im=None, lbl=None, idx=None):
