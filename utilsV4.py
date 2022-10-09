@@ -337,7 +337,7 @@ class FlatImg(object):
             trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 4]), \
                                         drop_last=True, pin_memory=True, shuffle=False, sampler=train_sampler)
         else:
-            trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 4]), \
+            trainloader = data.DataLoader(train_dataset, batch_size=self.args.batch_size, num_workers=min([os.cpu_count(), self.args.batch_size if self.args.batch_size > 1 else 0, 8]), \
                                         drop_last=True, pin_memory=True, shuffle=True)
             train_sampler = None            
         return trainloader, train_sampler

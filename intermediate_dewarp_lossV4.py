@@ -1,3 +1,8 @@
+'''
+2022/10/09
+Weiguang Zhang
+V4 means DDCP+FDRNet+data_concat
+'''
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,7 +12,7 @@ import cv2
 
 class get_dewarped_intermediate_result(nn.Module):
 
-    def __init__(self, output_size=[992/5, 992/5], pt_num=[31, 31], device=torch.device('cuda:2')):
+    def __init__(self, output_size=[992/5, 992/5], pt_num=[11, 11], device=torch.device('cuda:2')):
         """
         通过初始化中的实例化estimateTransformation，间接实现了TPS。该类中仅包含F.grid_sample的过程
         input:
@@ -18,8 +23,8 @@ class get_dewarped_intermediate_result(nn.Module):
             batch_I_r: rectified image [batch_size x I_channel_num x I_r_height x I_r_width]
         """
         super(get_dewarped_intermediate_result, self).__init__()
-        self.f_row_num, self.f_col_num = pt_num # (31, 31)
-        self.F = self.f_row_num * self.f_col_num # 961 总控制点数量
+        self.f_row_num, self.f_col_num = pt_num # (11, 11)
+        self.F = self.f_row_num * self.f_col_num # 121 总控制点数量
         self.output_size = list(map(int, output_size)) # (h, w)(198,198)
         self.device = device
         # self.lowpart, self.hpf = self.fdr()
@@ -76,13 +81,16 @@ class get_dewarped_intermediate_result(nn.Module):
         '''
         self.lowpart, self.hpf = self.fdr()
         if ptd1 is None:
+            '''
+            ptd1: [b, 2, 31, 31]
+            '''
             # 完成shrunken h*w形式的 backward mapping构建
             batch_num = batch_pt.shape[0]
-            batch_pt_norm = batch_pt / 992 # [b, 2, 31, 31]
-            batch_pt_norm = batch_pt_norm.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 31, 31] ->  [b, 31, 31, 2] -> [b, 961, 2] 
+            batch_pt = batch_pt[:,:,::3,::3] / 992 # [b, 2, 31, 31] -> [b, 2, 11, 11]
+            batch_pt = batch_pt.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 31, 31] ->  [b, 31, 31, 2] -> [b, 961, 2] 
             # batch_pt_norm = (batch_pt_norm[None,:]-0.5)*2
-            batch_pt_norm = (batch_pt_norm[:]-0.5)*2
-            build_P_prime = self.estimateTransformation.build_P_prime(batch_pt_norm)  
+            batch_pt = (batch_pt[:]-0.5)*2
+            build_P_prime = self.estimateTransformation.build_P_prime(batch_pt)  
             build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
             # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
 
@@ -99,16 +107,16 @@ class get_dewarped_intermediate_result(nn.Module):
             return batch_I_r, batch_ref_ffted # output: [b, 3, h, w]
         elif ptd1 is not None:
             '''
-            ptd1: [b, 2, 31, 31]
+            ptd1: [b, 2, 11, 11]
             '''
             # 完成shrunken h*w形式的 backward mapping构建
             batch_num = batch_pt.shape[0]
-            batch_pt_norm = batch_pt / 992 # [b, 2, 31, 31]
-            batch_pt_norm = batch_pt_norm.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 31, 31] ->  [b, 31, 31, 2] -> [b, 961, 2] 
+            batch_pt = batch_pt[:,:,::3,::3] / 992 # [b, 2, 31, 31] -> [b, 2, 11, 11]
+            batch_pt = batch_pt.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 11, 11] ->  [b, 11, 11, 2] -> [b, 121, 2] 
             # batch_pt_norm = (batch_pt_norm[None,:]-0.5)*2
-            batch_pt_norm = (batch_pt_norm[:]-0.5)*2
+            batch_pt = (batch_pt[:]-0.5)*2
             # key difference
-            build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_pt_norm, ptd1)   
+            build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_pt, ptd1)   
             build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
             # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
 
@@ -141,9 +149,9 @@ class estimateTransformation(nn.Module):
         super(estimateTransformation, self).__init__()
         self.eps = 1e-6 # 为了防止径向基函数中的log()为0，故而加入一个很小的数值
         self.I_r_height, self.I_r_width = output_size # shrunken (h, w) (198,198)
-        self.F = F # 961
+        self.F = F # 121
         self.device = device
-        self.C = self._build_C(self.F) # (961,2)
+        self.C = self._build_C(self.F) # (121,2)
         self.P = self._build_P(self.I_r_width, self.I_r_height) # (39204,2)
         # self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float64, device=self.device)) 
         # self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64, device=self.device))
@@ -158,8 +166,8 @@ class estimateTransformation(nn.Module):
         # batch_pt_norm = batch_pt_norm.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 31, 31] ->  [b, 31, 31, 2] -> [b, 961, 2] 
         # batch_pt_norm = (batch_pt_norm[:]-0.5)*2
         pts = pts.data.cpu().numpy().transpose(0, 2, 3, 1) # [b,31,31,2]
-        pts = pts / [992, 992] # 归一化，模型输出点稀疏点本身就在992*992的范围内[b,31,31,2]
-        pts = pts.transpose(0,2,1,3).reshape(batch_num,-1,2) # [b,31,31,2] -> [b,961,2] HWC->WHC->(WH)C
+        pts = pts[:,::3,::3,:] / [992, 992] # [b,31,31,2] -> [b,11,11,2]
+        pts = pts.transpose(0,2,1,3).reshape(batch_num,-1,2) # [b,11,11,2] -> [b,121,2] HWC->WHC->(WH)C
         pts = (pts[:]-0.5)*2 
 
         # pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
@@ -202,16 +210,16 @@ class estimateTransformation(nn.Module):
                 axis=0
             )
             inv_delta_C[m] = np.linalg.inv(delta_C[m]) # 求逆
-        return inv_delta_C  # b x F+3 x F+3 # (b,964,964)
+        return inv_delta_C  # b x F+3 x F+3 # (b,124,124)
 
     def _build_C(self, F):
         '''
         构造归一化到[-1 to 1]的参考点矩阵，一共961个点的坐标，闭区间
         '''
-        im_x, im_y = np.mgrid[-1:1:complex(31), -1:1:complex(31)]
+        im_x, im_y = np.mgrid[-1:1:complex(11), -1:1:complex(11)]
         # C = np.stack((im_x,im_y), axis=2).reshape(-1,2) # (961,2),列序优先，且先w(x)后h(y)
-        C = np.stack((im_y,im_x), axis=2).reshape(-1,2) # (961,2),行序优先，且先w(x)后h(y)
-        return C  # (961,2) from [-1 to 1] 闭区间，边界值可以取到
+        C = np.stack((im_y,im_x), axis=2).reshape(-1,2) # (121,2),行序优先，且先w(x)后h(y)
+        return C  # (121,2) from [-1 to 1] 闭区间，边界值可以取到
 
     def _build_inv_delta_C(self, F, C): 
         '''
@@ -265,55 +273,26 @@ class estimateTransformation(nn.Module):
     def _build_P_hat(self, F, C, P):
         '''
         P_hat也是大矩阵，是根据参考点和P
-        C: (961,2) from [-1 to 1] 行序优先
+        C: (121,2) from [-1 to 1] 行序优先
         P: (39204,2) from [-1 to 1] 行序优先
         '''
         n = P.shape[0]  # n (= self.I_r_width x self.I_r_height) # 39204
-        P_tile = np.tile(np.expand_dims(P, axis=1), (1, F, 1))  # n x 2 -> n x 1 x 2 -> n x F x 2  ==(102400,1,2) tile in (1,961,1) = (102400, 961, 2)
-        C_tile = np.expand_dims(C, axis=0)  # 1 x F x 2 # (961,2)->(1,961,2)
-        P_diff = P_tile - C_tile  # nxFx2 #(39204, 961, 2)-(1,961,2)=(39204, 961, 2)
+        P_tile = np.tile(np.expand_dims(P, axis=1), (1, F, 1))  # n x 2 -> n x 1 x 2 -> n x F x 2  ==(39204,1,2) tile in (1,121,1) = (39204, 121, 2)
+        C_tile = np.expand_dims(C, axis=0)  # 1 x F x 2 # (121,2)->(1,121,2)
+        P_diff = P_tile - C_tile  # nxFx2 #(39204, 121, 2)-(1,121,2)=(39204, 121, 2)
         rbf_norm = np.linalg.norm(P_diff, ord=2, axis=2, keepdims=False)  # n x F
         rbf = 2 * np.multiply(np.square(rbf_norm), np.log(rbf_norm + self.eps))  # n x F
         P_hat = np.concatenate([np.ones((n, 1)), P, rbf], axis=1)
-        return P_hat  # n x F+3  # 39204 * 964
+        return P_hat  # n x F+3  # 39204 * 124
     
     # def func(self, x, y): 
     #     return (x+y)*np.exp(-5.0*(x**2 + y**2)) 
     
     def _build_d1_P(self, I_r_width, I_r_height, pts):
         '''
-        pts: (b,2,31,31)
+        pts: (b,2,11,11)
         '''
         batch_num = pts.shape[0]
-        # pts = pts.data.cpu().numpy().transpose(0, 2, 3, 1) # [b,31,31,2]
-        # pts = pts / [992, 992] # 归一化，模型输出点稀疏点本身就在992*992的范围内[b,31,31,2]
-        # pts = pts.transpose(0,2,1,3) # [b,31,31,2] -> [b,31,31,2] BHWC -> BWHC
-        # pts = (pts[:]-0.5)*2  # (b,31,31,2)
-        # batch_pts = np.empty((batch_num,I_r_width,I_r_height,2)) # (b,198,198,2)
-        # for batch in range(batch_num):
-        #     batch_pts[batch] = cv2.resize(pts[batch], (198,198), interpolation=cv2.INTER_LINEAR) 
-        # batch_pts = batch_pts.reshape(batch_num, -1, 2) # (b,39204,2)
-
-        # pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
-        # pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31]
-        # for batch in range(batch_num):
-        #     torch.max(pts[batch,0,:,:])
-        #     pts = pts[batch,0,:,:] / 992 
-        #     pts = (pts-0.5)*2
-        # pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
-        # pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
-        # batch_pts = pts.data.cpu().numpy()
-     
-        # pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
-        # pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31]
-        # for batch in range(batch_num):
-        #     for axis in range(2):
-        #         pts[batch,axis,:,:] = (pts[batch,axis,:,:]-torch.min(pts[batch,axis,:,:]))  / (torch.max(pts[batch,axis,:,:])-torch.min(pts[batch,axis,:,:]) )
-        #         pts[batch,axis,:,:] = (pts[batch,axis,:,:]-0.5)*2
-        # pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
-        # pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
-        # batch_pts = pts.data.cpu().numpy()
-
         I_r_x = np.linspace(-1, 1, I_r_width)   # self.I_r_width (198,)
         I_r_y = np.linspace(-1, 1, I_r_height)  # self.I_r_height (198,)        
         
@@ -349,31 +328,31 @@ class estimateTransformation(nn.Module):
 
     # 主函数，构造backward mapping
     def build_P_prime(self, batch_C_prime):
-        batch_size = batch_C_prime.size(0) # batch_C_prime= (1,961,2),是warped图像上的控制点位置（已归一化到(-1,1)）
+        batch_size = batch_C_prime.size(0) # batch_C_prime= (1,121,2),是warped图像上的控制点位置（已归一化到(-1,1)）
         batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().cuda()), dim=1)  # batch_size x F+3 x 2 
-        # 实现 (1,961,2)+(1,3,2) in dim1= (1,964,2)，获得真实图像上的控制点
-        batch_T = torch.matmul(self.inv_delta_C.repeat(batch_size,1,1), batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 964, 964]*[b,964,2] = [b, 964, 2]
+        # 实现 (1,121,2)+(1,3,2) in dim1= (1,124,2)，获得真实图像上的控制点
+        batch_T = torch.matmul(self.inv_delta_C.repeat(batch_size,1,1), batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 124, 124]*[b,124,2] = [b, 124, 2]
         # 与求逆后的大矩阵相乘，获得参数转移矩阵T
         
-        batch_P_prime = torch.matmul(self.P_hat.repeat(batch_size,1,1), batch_T)  # batch_size x n x 2  # [39204, 964]*[b, 964, 2]=[1, 102400, 2] torch.Size([2, 39204, 2])
+        batch_P_prime = torch.matmul(self.P_hat.repeat(batch_size,1,1), batch_T)  # batch_size x n x 2  # [39204, 124]*[b, 124, 2]=[1, 39204, 2] torch.Size([2, 39204, 2])
         return batch_P_prime  # batch_size x n x 2 
 
     # 主函数2，构造backward mapping
     def build_P_prime_for_d1(self, batch_C_prime, pt_d1):
         '''
-        pt_d1: (b,2,31,31),是已知的target的label
-        batch_C_prime: [b, 961, 2] 归一化的w1
+        pt_d1: (b,2,11,11),是已知的target的label
+        batch_C_prime: [b, 121, 2] 归一化的w1
         '''
-        batch_size = batch_C_prime.size(0) # batch_C_prime= (1,961,2),是warped图像上的控制点位置（已归一化到(-1,1)）
+        batch_size = batch_C_prime.size(0) # batch_C_prime= (1,121,2),是warped图像上的控制点位置（已归一化到(-1,1)）
         batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().cuda()), dim=1)  # batch_size x F+3 x 2 
-        # 实现 (1,961,2)+(1,3,2) in dim1= (1,964,2)，获得真实图像上的控制点
-        self.D1C = self._build_d1_C(self.F, pt_d1) # (b,961,2)
+        # 实现 (1,121,2)+(1,3,2) in dim1= (1,124,2)，获得真实图像上的控制点
+        self.D1C = self._build_d1_C(self.F, pt_d1) # (b,2,11,11)
         self.inv_delta_d1C = torch.tensor(self._build_inv_delta_d1_C(self.F, self.D1C), dtype=torch.float64).cuda()
-        batch_T = torch.matmul(self.inv_delta_d1C, batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 964, 964]*[b,964,2] = [b, 964, 2]
+        batch_T = torch.matmul(self.inv_delta_d1C, batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 124, 124]*[b,124,2] = [b, 124, 2]
         # 与求逆后的大矩阵相乘，获得参数转移矩阵T
         
         self.D1P = self._build_d1_P(self.I_r_width, self.I_r_height, pt_d1) #加密的点 (b, 39204, 2)
         self.d1P_hat = torch.tensor(self._build_P_d1_hat(self.F, self.D1C, self.D1P), dtype=torch.float64).cuda()
         
-        batch_P_prime = torch.matmul(self.d1P_hat, batch_T)  # batch_size x n x 2  # [2,39204, 964]*[2, 964, 2]= [2, 39204, 2]
+        batch_P_prime = torch.matmul(self.d1P_hat, batch_T)  # batch_size x n x 2  # [2,39204, 124]*[2, 124, 2]= [2, 39204, 2]
         return batch_P_prime  # batch_size x n x 2  # [2, 39204, 2])
