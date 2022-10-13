@@ -34,26 +34,45 @@ import numpy as np
 # pl.savefig("./simple_test/interpola_vis/2dinterpo.png")
 
 ######################################################################################
-# from scipy.interpolate import LinearNDInterpolator
-# import matplotlib.pyplot as plt
-# rng = np.random.default_rng()
-# x = rng.random(10) - 0.5
-# y = rng.random(10) - 0.5
-# z = np.hypot(x, y)
-# X = np.linspace(min(x), max(x))
-# Y = np.linspace(min(y), max(y))
-# X, Y = np.meshgrid(X, Y)  # 2D grid for interpolation
-# interp = LinearNDInterpolator(list(zip(x, y)), z)
-# Z = interp(X, Y)
-# plt.pcolormesh(X, Y, Z, shading='auto')
-# plt.plot(x, y, "ok", label="input point")
-# plt.legend()
-# plt.colorbar()
-# plt.axis("equal")
-# plt.show()
-###################################################################
-import cv2
-im = np.random.randn(31,31,2)
+from scipy.interpolate import LinearNDInterpolator
+import matplotlib.pyplot as plt
+rng = np.random.default_rng()
+x = rng.random(10) - 0.5
+y = rng.random(10) - 0.5
 
-im_new = cv2.resize(im, (198,198), interpolation=cv2.INTER_LINEAR) 
-print(im_new.shape)
+aaaa = y[range(1,3)]
+print(aaaa)
+
+z = np.hypot(x, y)
+X = np.linspace(min(x), max(x))
+Y = np.linspace(min(y), max(y))
+X, Y = np.meshgrid(X, Y)  # 2D grid for interpolation
+interp = LinearNDInterpolator(list(zip(x, y)), z)
+Z = interp(X, Y)
+
+plt.pcolormesh(X, Y, Z, shading='auto')
+plt.plot(x, y, "ok", label="input point")
+plt.legend()
+plt.colorbar()
+plt.axis("equal")
+plt.savefig("./simple_test/interpola_vis/2dinterpo.png")
+# plt.show()
+
+###################################################################
+# import cv2
+# im = np.random.randn(31,31,2)
+
+# im_new = cv2.resize(im, (198,198), interpolation=cv2.INTER_LINEAR) 
+# print(im_new.shape)
+
+###################################################################
+            # BM[norm_batch_trg_pt]
+            # BM_list = []
+            # for batch in range(batch_num):
+            #     z = np.hypot(norm_batch_trg_pt[batch,:,0], norm_batch_trg_pt[batch,:,1])
+            #     X = np.linspace(np.min(norm_batch_trg_pt[batch,:,0]), np.max(norm_batch_trg_pt[batch,:,0]))
+            #     Y = np.linspace(np.min(norm_batch_trg_pt[batch,:,1]), np.max(norm_batch_trg_pt[batch,:,1]))
+            #     X, Y = np.meshgrid(X, Y)  # 2D grid for interpolation
+            #     interp = LinearNDInterpolator(list(zip(norm_batch_trg_pt[batch,:,0], norm_batch_trg_pt[batch,:,1])), z)
+            #     Z = interp(X, Y)
+            #     BM_list.append(Z)

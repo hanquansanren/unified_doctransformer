@@ -136,7 +136,12 @@ class Losses(object):
         return loss_l1, loss_local, 0, 0
         # return loss_l1, loss_local, loss_edge, loss_rectangle
 
-    def loss_fn_l1_loss(self, input, target, reduction='mean'):
+    def loss_fn_l1_loss(self, input, target, mask=None, reduction='mean'):
         '''three'''
-        return F.l1_loss(input, target, reduction=reduction)
+        if mask is None:
+            return F.l1_loss(input, target, reduction=reduction)
+        elif mask is not None:
+            return F.l1_loss(input*mask, target*mask, reduction=reduction)   
+        else:
+            print('error mask')        
 

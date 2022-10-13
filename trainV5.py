@@ -1,7 +1,7 @@
 '''
 2022/9/6
 Weiguang Zhang
-V4 means DDCP+FDRNet+data_concat最后一次训练在10月10日
+V5 means pure FDRNet
 '''
 import os, sys
 import argparse
@@ -15,9 +15,7 @@ import matplotlib.pyplot as plt
 workdir=os.getcwd()
 from torch.utils.tensorboard import SummaryWriter
 
-import utilsV4 as utils
-from utilsV4 import AverageMeter
-from dataset_lmdbV4 import my_unified_dataset
+
 from loss import Losses
 import torch.nn.functional as F
 import torch
@@ -25,7 +23,10 @@ from torch.utils import data
 import random
 import torchvision
 from os.path import join as pjoin
-from intermediate_dewarp_lossV4 import get_dewarped_intermediate_result
+import utilsV4 as utils
+from utilsV4 import AverageMeter
+from dataset_lmdbV5 import my_unified_dataset
+from intermediate_dewarp_lossV5 import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
     '''
@@ -48,7 +49,7 @@ def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_ta
         ax.scatter(np.transpose(pred[idx].detach().cpu(), [1, 2, 0])[:,:,0].flatten(), np.transpose(pred[idx].detach().cpu(), [1, 2, 0])[:,:,1].flatten(),s=1.2,c='green',alpha=1)
         ax.axis('off')
         plt.subplots_adjust(left=0,bottom=0,right=1,top=1, hspace=0,wspace=0)
-        plt.savefig('./point_vis{}.png'.format(idx))
+        plt.savefig('./tensorbd_vis/point_vis{}.png'.format(idx))
         fig.canvas.draw()
         fig_str = fig.canvas.tostring_rgb()
         data = np.frombuffer(fig_str, dtype=np.uint8).reshape((int(992), -1, 3)).astype(np.uint8)
@@ -67,6 +68,31 @@ def location_mark(img, location, color=(0, 0, 255)):
                     (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
     return img
 
+def mask_calculator(lbl):
+    '''
+    lbl:(b,2,31,31)
+    '''
+    batch_num = lbl.shape[0]
+    
+    mask = np.zeros((batch_num,992,992,3))
+    for batch in range(batch_num):
+        pt_edge_batch = np.zeros((batch_num,2,120))
+        pt_edge_batch[batch,:,0:31] = lbl[batch,:,0,:]
+        for num in range(1,30,1):
+            pt_edge_batch[batch,:,30+num]= lbl[batch,:,num,30]
+        pt_edge_batch[batch,:,60:91] = lbl[batch,:,30,:][:,::-1]
+        for num in range(29,0,-1):
+            pt_edge_batch[batch,:,90+num]= lbl[batch,:,30-num,0]
+
+        img = np.zeros((992, 992, 3), dtype=np.int32)
+        pts = pt_edge_batch.round().astype(int).transpose(0,2,1)
+        
+        mask[batch] = cv2.fillPoly(img, [pts[batch]], (1, 1, 1))
+        location_mark(img, pts, (0, 0, 255))
+        cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
+    mask = torch.from_numpy(mask).double().cuda().permute(0,3,1,2)
+    # mask (b,992,992,3)
+    return mask
 
 def train(args):
     ''' log writer '''
@@ -96,6 +122,7 @@ def train(args):
     device_ids_visual_list=list(range(n_gpu)) # 已经重新映射为从0开始的列表
     args.device = torch.device('cuda:'+str(device_ids_visual_list[0])) # 选择列表的第一块GPU，用于存放模型参数，模型的结构    
     args.device2 = torch.device('cuda:'+str(device_ids_visual_list[2])) # 选择列表的第一块GPU，用于存放模型参数，模型的结构
+    
     ''' load model '''
     from networkV4 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
     n_classes = 2
@@ -118,6 +145,7 @@ def train(args):
         model = model.to(args.device) # model.cuda(args.device) or model.cuda() # 模型统一移动到第一块GPU上。需要注意的是，对于模型（nn.module）来说，返回值值并非是必须的，而对于数据（tensor）来说，务必需要返回值。此处选择了比较保守的，带有返回值的统一写法
         model = torch.nn.DataParallel(model, device_ids=device_ids_visual_list) # device_ids定义了并行模式下，模型可以运行的多台机器，该函数不光支持多GPU，同时也支持多CPU，因此需要model.to()来指定具体的设备。
         tps_for_loss = torch.nn.DataParallel(tps_for_loss, device_ids=[2,1,0])
+        # tps_for_loss = torch.nn.DataParallel(tps_for_loss, device_ids=device_ids_visual_list)
         tps_for_loss = tps_for_loss.to(args.device2)
         print('The main device is in: ',next(model.parameters()).device)
     else:
@@ -162,8 +190,8 @@ def train(args):
                 checkpoint = torch.load(args.resume, map_location=args.device) 
                 model.load_state_dict(checkpoint['model_state'])
                 # optimizer.load_state_dict(checkpoint['optimizer_state'])
-                # for param_group in optimizer.param_groups:
-                #     param_group["lr"] = args.l_rate 
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = args.l_rate 
                 # scheduler.load_state_dict(checkpoint['scheduler_state'])
                 # print(next(model.parameters()).device)
             else:
@@ -226,97 +254,149 @@ def train(args):
                 trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (images, labels) in enumerate(trainloader_list[epoch%1][0]):
-                # images: [b, 3*6, 992, 992] = d1+d2+w1+di+mask1+mask2
-                # labels: [b, 2*2, 31, 31] = lbl1+lbl2 
-                images=torch.cat((images[:,0:3,:,:],images[:,3:6,:,:],images[:,6:9,:,:],images[:,9:12,:,:],images[:,12:15,:,:],images[:,15:18,:,:]),dim=0)
-                labels=torch.cat((labels[:,0:2,:,:],labels[:,2:4,:,:]),dim=0)
-                # images: [6*b, 3, 992, 992] = d1+d2+w1+di+mask1+mask2
-                # labels: [2*b, 2, 31, 31] = lbl1+lbl2                 
-                images = images.cuda()
-                labels = labels.cuda()
+            for i, (w1,di) in enumerate(trainloader_list[epoch%1][0]):
+                # images: [b, 3*2, 992, 992] = w1+di
+                # images = torch.cat((images[:,0:3,:,:],images[:,3:6,:,:]),dim=0)
+                # # images: [2*b, 3, 992, 992] = w1+di
+                # # w1: images[0*args.batch_size:1*args.batch_size]
+                # # di: images[1*args.batch_size:2*args.batch_size]           
+                w1 = w1.cuda()
+                di = di.cuda()
+
+                # labels = labels.cuda()
+                # images = images.cuda()
                 optimizer.zero_grad()
                 global_step+=1
-                # t1=time.time()
-                triple_outputs = model(images[0:3*args.batch_size]) # (3*b, 2, 31, 31) # outputs1,outputs2,output3分别是是D1和D2以及wild的控制点坐标信息，先w(x),后h(y)，范围是（992,992）
-                # fourier dewarp for part3 and part4
-                rectified_img3, ref_img3 = tps_for_loss(images[2*args.batch_size:3*args.batch_size], images[3*args.batch_size:4*args.batch_size], triple_outputs[2*args.batch_size:3*args.batch_size])
-                # input: 输入图片: [b, 3, 992, 992] 目标图片:[b, 3, 992, 992] 对输入图片的预测: [b, 2, 31, 31]
-                # input: w_im: [b, 3, 992, 992] d_im:[b, 3, 992, 992] pred: [b, 2, 31, 31]
-                # output:rectified_img3 [b, 3, 992, 992];  ref_img3 [b, 3, 992, 992]
-
-                rectified_img4, ref_img4 = tps_for_loss(images[2*args.batch_size:3*args.batch_size], images[0:args.batch_size], triple_outputs[2*args.batch_size:], ptd1=labels[:args.batch_size])
-                # 添加的输入d1:代表目标图片的label：[b, 2, 31, 31]
-                rectified_img5, ref_img5 = tps_for_loss(images[2*args.batch_size:3*args.batch_size], images[args.batch_size:2*args.batch_size], triple_outputs[2*args.batch_size:], ptd1=labels[args.batch_size:2*args.batch_size])
-                rectified_img6, ref_img6 = tps_for_loss(images[0:args.batch_size], images[args.batch_size:2*args.batch_size], triple_outputs[0:args.batch_size], ptd1=labels[args.batch_size:2*args.batch_size])
-                # rectified_img6, ref_img6 = tps_for_loss(images1, images2, labels1, ptd1=labels2)
-                rectified_img7, ref_img7 = tps_for_loss(images[args.batch_size:2*args.batch_size], images[0:args.batch_size], triple_outputs[args.batch_size:2*args.batch_size], ptd1=labels[:args.batch_size])
-                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
+                t1=time.time()
                 
-                loss1 = loss1_l1*3 + (loss1_local)*loss_instance.lambda_loss_a
-                loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
-                loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
-                loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
-                loss6 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img6.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img6.to(args.device))
-                loss7 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img7.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img7.to(args.device))
-                loss = loss1 + (loss3 + loss4 + loss5) + 10*(loss6 + loss7)
-                # loss = loss1 + (loss3 + loss4 + loss5)
-                # print(time.time()-t1,'second')
-
+                
+                perturbed_wi_list = tps_for_loss.module.perturb_warp(args.batch_size) 
+                # perturbed_wi_list: 2 elements, each element is [6, 2, 11, 11]
+                # w_im_p1 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
+                # w_im_p2 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
+                w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
+                w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
+                '''vis for p1 and p2'''
                 if (global_step-1)%4==0:
-                    '''vis for fourier dewarp'''
-                    # flat_show = d_im[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    # flat_show = flat_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    # cv2.imwrite('./mark_origin_scanned.png', flat_show)
-                    # w1_show = w_im[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    # w1_show = w1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    # cv2.imwrite('./mark_origin_wild.png', w1_show)
+                    w1_show = w1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    w1_show = w1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_origin_wild.png', w1_show)
+                    w1_p1 = w_im_p1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    w1_p1 = w1_p1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_origin_p1.png', w1_p1)
+                    w1_p2 = w_im_p2[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    w1_p2 = w1_p2.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_origin_p2.png', w1_p2)
 
-                    target_show = images[args.batch_size:2*args.batch_size][0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    target_show = target_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./mark_origin_target.png', target_show)
-                    in_show = images[0*args.batch_size:1*args.batch_size][0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    in_show = in_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./mark_origin_input.png', in_show)
-                    triple_outputs_show = triple_outputs[0*args.batch_size:1*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
-                    perturbed_img_mark = location_mark(in_show.copy(), triple_outputs_show, (0, 0, 255))
-                    cv2.imwrite('./mark_origin_input_pred.png', perturbed_img_mark)
-                    # in_lbl_show = labels1.detach().cpu().numpy().transpose(0, 2, 3, 1)[0]
-                    # lbl_img_mark = location_mark(in_show.copy(), in_lbl_show, (0, 255, 0))
-                    # cv2.imwrite('./mark_origin_input_lbl.png', lbl_img_mark)
-                    flatten_img = images[5*args.batch_size:6*args.batch_size][0]*rectified_img6[0].to(args.device)
-                    flatten_img_show = flatten_img.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    flatten_img_show = flatten_img_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./mark_rectified_input.png', flatten_img_show)
-                    refe4_img = images[5*args.batch_size:6*args.batch_size][0]*ref_img6[0].to(args.device)
-                    refe4_img_show = refe4_img.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    refe4_img_show = refe4_img_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./mark_ref_target.png', refe4_img_show)
+                # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
+                # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
+                triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1
+                # (3*b, 2, 31, 31) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
+                # outputs1, D1_pred: triple_outputs[0:args.batch_size]
+                # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
+                # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
+                
+                # tps loss part
+                # rectified_img3, ref_img3 = tps_for_loss(images[2*args.batch_size:3*args.batch_size], \
+                #                         batch_ref=images[3*args.batch_size:4*args.batch_size], \
+                #                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
+                rectified_img3, ref_img3 = tps_for_loss(w1, \
+                                        batch_ref=di, \
+                                        batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
+                rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
+                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size])
+                rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
+                                        batch_trg_pt=triple_outputs[0:args.batch_size])
+                
+                # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
+                
+                # loss1 = loss1_l1*3 + (loss1_local)*loss_instance.lambda_loss_a
+                loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
+                # loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
+                # loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
+                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy()) # input: (b,2,31,31)
+                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy())
+                loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
+                loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
+                loss = loss3 + 0.5*(loss6 + loss7)
+                # loss = loss1 + (loss3 + loss4 + loss5)
+                print(time.time()-t1,'second')
+                
+                '''vis for fourier dewarp'''
+                if (global_step-1)%4==0:
+                    p1_pred_show = triple_outputs[0*args.batch_size:1*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
+                    perturbed_img_mark1 = location_mark(w1_p1.copy(), p1_pred_show, (0, 0, 255))
+                    cv2.imwrite('./intermedia_tps_vis/mark_pred_p1.png', perturbed_img_mark1)
+                    p2_pred_show = triple_outputs[1*args.batch_size:2*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
+                    perturbed_img_mark2 = location_mark(w1_p2.copy(), p2_pred_show, (0, 0, 255))
+                    cv2.imwrite('./intermedia_tps_vis/mark_pred_p2.png', perturbed_img_mark2)
+                    w1_pred_show = triple_outputs[2*args.batch_size:3*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
+                    perturbed_img_mark3 = location_mark(w1_show.copy(), w1_pred_show, (0, 0, 255))
+                    cv2.imwrite('./intermedia_tps_vis/mark_pred_w1.png', perturbed_img_mark3)
+
+                    flatten_img1 = rectified_img6[0].to(args.device)
+                    flatten_img_show1 = flatten_img1.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    flatten_img_show1 = flatten_img_show1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_rectified_p1.png', flatten_img_show1)
+                    ref_img1 = mask2[0]*w_im_p2[0].to(args.device)
+                    ref_img1_show = ref_img1.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    ref_img1_show = ref_img1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_ref_target_p2.png', ref_img1_show)
+
+                    flatten_img2 = rectified_img7[0].to(args.device)
+                    flatten_img_show2 = flatten_img2.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    flatten_img_show2 = flatten_img_show2.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_rectified_p2.png', flatten_img_show2)
+                    ref_img2 = mask1[0]*w_im_p1[0].to(args.device)
+                    ref_img2_show = ref_img2.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    ref_img2_show = ref_img2_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_ref_target_p1.png', ref_img2_show)
+
+                    flatten_img3 = rectified_img3[0].to(args.device)
+                    flatten_img_show3 = flatten_img3.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    flatten_img_show3 = flatten_img_show3.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_rectified_w1.png', flatten_img_show3)
+                    ref_img3 = ref_img3[0].to(args.device)
+                    ref_img3_show = ref_img3.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+                    ref_img3_show = ref_img3_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+                    cv2.imwrite('./intermedia_tps_vis/mark_ref_target_di.png', ref_img3_show)
+
 
 
                 loss.backward()
                 optimizer.step()
-
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
 
-                loss_l1_list +=    (loss1_l1.item()*1)
-                loss_local_list += (loss1_local.item()*loss_instance.lambda_loss_a)
+                # loss_l1_list +=    (loss1_l1.item()*1)
+                # loss_local_list += (loss1_local.item()*loss_instance.lambda_loss_a)
+                loss_l1_list +=    0
+                loss_local_list += 0
                 loss3_list += (loss3.item()*1)
-                loss4_list += (loss4.item()*1)
-                loss5_list += (loss5.item()*1)
-                loss6_list += (loss6.item()*10)
-                loss7_list += (loss7.item()*10)
+                # loss4_list += (loss4.item()*1)
+                # loss5_list += (loss5.item()*1)
+                loss4_list += 0
+                loss5_list += 0
+                loss6_list += (loss6.item()*0.5)
+                loss7_list += (loss7.item()*0.5)
                 
                 if (global_step-1)%30==0:
-                    show_wc_tnsboard(global_step, writer, images[4*args.batch_size:5*args.batch_size], labels[:args.batch_size], triple_outputs[0:args.batch_size], 8,'Train d1 pts', 'no', 'no')
+                    # show_wc_tnsboard(global_step, writer, images[4*args.batch_size:5*args.batch_size], labels[:args.batch_size], triple_outputs[0:args.batch_size], 8,'Train d1 pts', 'no', 'no')
                     # show_wc_tnsboard(global_step, writer, images2, labels2, triple_outputs[args.batch_size:2*args.batch_size], 8,'Train d2 pts', 'no', 'no')
-                    show_wc_tnsboard(global_step, writer, images[2*args.batch_size:3*args.batch_size], None, triple_outputs[2*args.batch_size:3*args.batch_size], 8,'Train wild pts', 'no', 'no')
-                    writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
-                    writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
+                    
+                    # show_wc_tnsboard(global_step, writer, images[2*args.batch_size:3*args.batch_size], None, triple_outputs[2*args.batch_size:3*args.batch_size], 8,'Train wild pts', 'no', 'no')
+                    # show_wc_tnsboard(global_step, writer, images[0*args.batch_size:1*args.batch_size], None, triple_outputs[0*args.batch_size:1*args.batch_size], 8,'Train wild pts', 'no', 'no')
+                    # show_wc_tnsboard(global_step, writer, images[1*args.batch_size:2*args.batch_size], None, triple_outputs[1*args.batch_size:2*args.batch_size], 8,'Train wild pts', 'no', 'no')
+                    
+                    show_wc_tnsboard(global_step, writer, w1, None, triple_outputs[2*args.batch_size:3*args.batch_size], 8,'Train wild pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, w1_p1, None, triple_outputs[0*args.batch_size:1*args.batch_size], 8,'Train p1 pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, w1_p2, None, triple_outputs[1*args.batch_size:2*args.batch_size], 8,'Train p2 pts', 'no', 'no')
+                    
+                    # writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
+                    # writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
                     writer.add_scalar('loss3 /train', loss3_list/(i+1), global_step)
-                    writer.add_scalar('loss4 /train', loss4_list/(i+1), global_step)
-                    writer.add_scalar('loss5 /train', loss4_list/(i+1), global_step)
+                    # writer.add_scalar('loss4 /train', loss4_list/(i+1), global_step)
+                    # writer.add_scalar('loss5 /train', loss4_list/(i+1), global_step)
                     writer.add_scalar('loss6 /train', loss6_list/(i+1), global_step)
                     writer.add_scalar('loss7 /train', loss6_list/(i+1), global_step)
                     writer.add_scalar('total Loss/train', losses.avg, global_step)
@@ -377,7 +457,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0002,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0001,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=2, type=int,
@@ -417,7 +497,7 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/15/2022-09-20 16:40:40DDCP.pkl')
     # big 
-    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     
     parser.add_argument('--parallel', default='023', type=list,
                         help='choice the gpu id for parallel ')

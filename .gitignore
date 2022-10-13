@@ -10,6 +10,7 @@ simple_test/__pycache__/
 fdr_vis/
 flat/
 runs/
+intermedia_tps_vis/
 gif
 accuracy_log
 *.gz
