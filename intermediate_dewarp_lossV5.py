@@ -201,19 +201,34 @@ class get_dewarped_intermediate_result(nn.Module):
             # build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
             # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
             # BM = torch.zeros((batch_num, 992, 992, 2)).cuda().double()
-            BM = torch.full((batch_num, 992, 992, 2), float('nan')).cuda().double()
-            # BM = torch.full((batch_num, 992, 992, 2), 0).cuda().double()
-            # BM = torch.full((batch_num, 992, 992, 2), 8).cuda().double()
             
-            dense_pt_d1 = ((dense_pt_d1/2+0.5)*992).astype(int) # (b,980000,2)
+
+            BM = torch.full((batch_num, 150, 150, 2), float('nan')).cuda().double()
+            dense_pt_d1 = ((dense_pt_d1/2+0.5)*150).astype(int) # (b,980000,2)
+            dense_pt_d1 = np.clip(dense_pt_d1, 0, 149)
+            # print(np.max(dense_pt_d1))
+            # BM = torch.full((batch_num, 992, 992, 2), float('nan')).cuda().double()            
+            # dense_pt_d1 = ((dense_pt_d1/2+0.5)*992).astype(int) # (b,980000,2)
+            # dense_pt_d1 = np.clip(dense_pt_d1, 0, 991)
+            
+            for batch in range(batch_num):
+                for l in range(198*198):
+                    BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
+
+        
+            # BM[:,dense_pt_d1[:,:,1],dense_pt_d1[:,:,0],:] = build_P_prime[:,:,:]
             
             # for batch in range(batch_num):
-            #     BM[batch,dense_pt_d1[batch,:,1],dense_pt_d1[batch,:,0],:] = build_P_prime[batch,:,:]
-            # for batch in range(batch_num):
-            BM[:,dense_pt_d1[:,:,1],dense_pt_d1[:,:,0],:] = build_P_prime[:,:,:]
-                    
+            #     for l in range(992*992):
+            #         BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
+            
+            # 获得BM (b, 198, 198, 2)
+            BM = BM.transpose(2, 3).transpose(1, 2) # (b, 198, 198, 2) -> (b, 2, 198, 198)
+            BM = F.interpolate(BM, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
+            BM = BM.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
+            
             batch_I_r = F.grid_sample(batch_I, BM, padding_mode='zeros', align_corners=True) # [b, 3, 992, 992], requires_grad=True
-            batch_I_r = batch_I_r.nan_to_num()
+            batch_I_r = batch_I_r.nan_to_num() # 默认将nan转成0
             return batch_I_r # output: [b, 3, h, w]   
         else:
             print("error in tps loss process")
@@ -372,13 +387,13 @@ class estimateTransformation(nn.Module):
         '''
         batch_num = pts.shape[0]     
         pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
-        pts = F.interpolate(pts, size=(992,992), mode='bilinear', align_corners=True) # [b, 2, 31, 31]
-        for batch in range(batch_num):
-            for xy in range(2):
-                # maximum_in_x_or_y = torch.max(pts[batch,xy,:,:]) # pts: [2, 2, 198, 198] 找到第0维度中的最大值
-                # pts[batch,xy,:,:] = pts[batch,xy,:,:] / (maximum_in_x_or_y+1 )  # pts: [2, 2, 198, 198] 找到第0维度中的最大值
-                pts[batch,xy,:,:] = pts[batch,xy,:,:] / 992
-                pts[batch,xy,:,:] = (pts[batch,xy,:,:]-0.5)*2
+        pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31] -> [b, 2, 600, 600]
+        # for batch in range(batch_num):
+        #     pts[batch,:,:,:] = pts[batch,:,:,:] / 992
+        #     pts[batch,:,:,:] = (pts[batch,:,:,:]-0.5)*2
+
+        pts = pts / 992
+        pts = (pts-0.5)*2
         pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
         pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
         batch_pts = pts.data.cpu().numpy()
@@ -391,7 +406,7 @@ class estimateTransformation(nn.Module):
         P_hat也是大矩阵，是根据参考点和P
         F=961
         d1C: (b,961,2) 
-        d1P: (b,39204,2) 
+        d1P: (b,980000,2) numpy
         '''
         batch_num = P.shape[0]
         n = P.shape[1]  # n (= self.I_r_width x self.I_r_height) # 39204
@@ -410,7 +425,7 @@ class estimateTransformation(nn.Module):
             P_hat[i] = np.concatenate([np.ones((n, 1)), P[i], rbf[i]], axis=1)
             # 列序优先
             # P_hat[i] = np.concatenate([rbf[i], np.ones((n, 1)), P[i]], axis=1)
-        return P_hat  # b x n x F+3  # b * 39204 * 964
+        return P_hat  # b x n x F+3  # b * 980000 * 964
 
     # 主函数，构造backward mapping
     def build_P_prime(self, batch_C_prime):

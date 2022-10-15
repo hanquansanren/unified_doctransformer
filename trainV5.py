@@ -62,10 +62,9 @@ def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_ta
     writer.add_image(inp_tag, grid_inp, global_step)
     
 def location_mark(img, location, color=(0, 0, 255)):
-    stepSize = 0
+    # stepSize = 0
     for l in location.astype(np.int64).reshape(-1, 2):
-        cv2.circle(img,
-                    (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
+        cv2.circle(img,(int(l[0]) , int(l[1])), 3, color, -1)
     return img
 
 def mask_calculator(lbl):
@@ -74,7 +73,7 @@ def mask_calculator(lbl):
     '''
     batch_num = lbl.shape[0]
     
-    mask = np.zeros((batch_num,992,992,3))
+    mask = np.zeros((batch_num,992,992,3),dtype=bool)
     for batch in range(batch_num):
         pt_edge_batch = np.zeros((batch_num,2,120))
         pt_edge_batch[batch,:,0:31] = lbl[batch,:,0,:]
@@ -87,10 +86,11 @@ def mask_calculator(lbl):
         img = np.zeros((992, 992, 3), dtype=np.int32)
         pts = pt_edge_batch.round().astype(int).transpose(0,2,1)
         
-        mask[batch] = cv2.fillPoly(img, [pts[batch]], (1, 1, 1))
-        location_mark(img, pts, (0, 0, 255))
-        cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
-    mask = torch.from_numpy(mask).double().cuda().permute(0,3,1,2)
+        mask[batch] = cv2.fillPoly(img, [pts[batch]], (255, 255, 255))
+        # mask[batch] = mask[batch] > 0
+        # location_mark(img, pts, (0, 0, 255))
+        # cv2.imwrite('./simple_test/interpola_vis/get_item_mask{}.png'.format(11), mask)
+    mask = torch.from_numpy(mask).cuda().permute(0,3,1,2)
     # mask (b,992,992,3)
     return mask
 
@@ -277,7 +277,7 @@ def train(args):
                 w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
                 w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
                 '''vis for p1 and p2'''
-                if (global_step-1)%4==0:
+                if (global_step-1)%1==0:
                     w1_show = w1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
                     w1_show = w1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
                     cv2.imwrite('./intermedia_tps_vis/mark_origin_wild.png', w1_show)
@@ -290,7 +290,8 @@ def train(args):
 
                 # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
                 # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
-                triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1
+                input = torch.cat((w_im_p1,w_im_p2,w1),dim=0)
+                triple_outputs = model(input) # input:d1,d2,w1
                 # (3*b, 2, 31, 31) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
                 # outputs1, D1_pred: triple_outputs[0:args.batch_size]
                 # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
@@ -318,12 +319,13 @@ def train(args):
                 mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy())
                 loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
                 loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
-                loss = loss3 + 0.5*(loss6 + loss7)
+                loss = loss3
+                # loss = loss3 + 0.5*(loss6 + loss7)
                 # loss = loss1 + (loss3 + loss4 + loss5)
                 print(time.time()-t1,'second')
                 
                 '''vis for fourier dewarp'''
-                if (global_step-1)%4==0:
+                if (global_step-1)%1==0:
                     p1_pred_show = triple_outputs[0*args.batch_size:1*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
                     perturbed_img_mark1 = location_mark(w1_p1.copy(), p1_pred_show, (0, 0, 255))
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_p1.png', perturbed_img_mark1)
@@ -364,6 +366,8 @@ def train(args):
 
 
                 loss.backward()
+                print('loss:', loss)
+                # print(x.grad)
                 optimizer.step()
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
@@ -377,6 +381,8 @@ def train(args):
                 # loss5_list += (loss5.item()*1)
                 loss4_list += 0
                 loss5_list += 0
+                # loss6_list += 0
+                # loss7_list += 0
                 loss6_list += (loss6.item()*0.5)
                 loss7_list += (loss7.item()*0.5)
                 
@@ -388,9 +394,9 @@ def train(args):
                     # show_wc_tnsboard(global_step, writer, images[0*args.batch_size:1*args.batch_size], None, triple_outputs[0*args.batch_size:1*args.batch_size], 8,'Train wild pts', 'no', 'no')
                     # show_wc_tnsboard(global_step, writer, images[1*args.batch_size:2*args.batch_size], None, triple_outputs[1*args.batch_size:2*args.batch_size], 8,'Train wild pts', 'no', 'no')
                     
-                    show_wc_tnsboard(global_step, writer, w1, None, triple_outputs[2*args.batch_size:3*args.batch_size], 8,'Train wild pts', 'no', 'no')
-                    show_wc_tnsboard(global_step, writer, w1_p1, None, triple_outputs[0*args.batch_size:1*args.batch_size], 8,'Train p1 pts', 'no', 'no')
-                    show_wc_tnsboard(global_step, writer, w1_p2, None, triple_outputs[1*args.batch_size:2*args.batch_size], 8,'Train p2 pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, w1, None, triple_outputs[2*args.batch_size:3*args.batch_size], 5,'Train wild pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, w_im_p1, None, triple_outputs[0*args.batch_size:1*args.batch_size], 5,'Train p1 pts', 'no', 'no')
+                    show_wc_tnsboard(global_step, writer, w_im_p2, None, triple_outputs[1*args.batch_size:2*args.batch_size], 5,'Train p2 pts', 'no', 'no')
                     
                     # writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
                     # writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
@@ -477,7 +483,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=6,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=5,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 

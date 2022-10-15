@@ -141,7 +141,7 @@ class Losses(object):
         if mask is None:
             return F.l1_loss(input, target, reduction=reduction)
         elif mask is not None:
-            return F.l1_loss(input*mask, target*mask, reduction=reduction)   
+            return F.l1_loss(input[mask], target[mask], reduction=reduction)   
         else:
             print('error mask')        
 
