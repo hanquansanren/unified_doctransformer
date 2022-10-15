@@ -176,8 +176,8 @@ class get_dewarped_intermediate_result(nn.Module):
             # fourier dewarp part
             batch_I_ffted = self.fourier_transform(batch_I, self.lowpart, self.hpf, batch_num)
             batch_ref_ffted = self.fourier_transform(batch_ref, self.lowpart, self.hpf, batch_num)
-            # flat_show = batch_I_ffted[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-            # flat_show = flat_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
+            # flat_show = batch_I_ffted[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float32')
+            # flat_show = flat_show.astype(np.uint8) # dtype('float32') -> dtype('uint8')
             # cv2.imwrite('./mark_origin_fft.png', flat_show)
             # batch_I_ffted = batch_I
             # batch_ref_ffted = batch_ref
@@ -195,41 +195,51 @@ class get_dewarped_intermediate_result(nn.Module):
             # batch_pt_norm = (batch_pt_norm[None,:]-0.5)*2
             batch_src_pt = (batch_src_pt[:]-0.5)*2
             # key difference
-            build_P_prime, dense_pt_d1 = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)   
-            # build_P_prime: (b,980000,2)
-            # dense_pt_d1: (b,980000,2)
-            # build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
-            # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
-            # BM = torch.zeros((batch_num, 992, 992, 2)).cuda().double()
+            # build_P_prime, dense_pt_d1 = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)
+            build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)      
             
-
-            BM = torch.full((batch_num, 150, 150, 2), float('nan')).cuda().double()
-            dense_pt_d1 = ((dense_pt_d1/2+0.5)*150).astype(int) # (b,980000,2)
-            dense_pt_d1 = np.clip(dense_pt_d1, 0, 149)
-            # print(np.max(dense_pt_d1))
-            # BM = torch.full((batch_num, 992, 992, 2), float('nan')).cuda().double()            
-            # dense_pt_d1 = ((dense_pt_d1/2+0.5)*992).astype(int) # (b,980000,2)
-            # dense_pt_d1 = np.clip(dense_pt_d1, 0, 991)
-            
-            for batch in range(batch_num):
-                for l in range(198*198):
-                    BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
-
-        
-            # BM[:,dense_pt_d1[:,:,1],dense_pt_d1[:,:,0],:] = build_P_prime[:,:,:]
+            # 局部采样
+            # # build_P_prime: (b,980000,2)
+            # # dense_pt_d1: (b,980000,2)
+            # # build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
+            # # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
+            # # BM = torch.zeros((batch_num, 992, 992, 2)).cuda().float()
+            # BM = torch.full((batch_num, 150, 150, 2), float('nan')).cuda().float()
+            # dense_pt_d1 = ((dense_pt_d1/2+0.5)*150).astype(int) # (b,980000,2)
+            # dense_pt_d1 = np.clip(dense_pt_d1, 0, 149)
+            # # print(np.max(dense_pt_d1))
+            # # BM = torch.full((batch_num, 992, 992, 2), float('nan')).cuda().float()            
+            # # dense_pt_d1 = ((dense_pt_d1/2+0.5)*992).astype(int) # (b,980000,2)
+            # # dense_pt_d1 = np.clip(dense_pt_d1, 0, 991)
             
             # for batch in range(batch_num):
-            #     for l in range(992*992):
+            #     for l in range(198*198):
             #         BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
+
+        
+            # # BM[:,dense_pt_d1[:,:,1],dense_pt_d1[:,:,0],:] = build_P_prime[:,:,:]
             
-            # 获得BM (b, 198, 198, 2)
-            BM = BM.transpose(2, 3).transpose(1, 2) # (b, 198, 198, 2) -> (b, 2, 198, 198)
-            BM = F.interpolate(BM, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
-            BM = BM.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
+            # # for batch in range(batch_num):
+            # #     for l in range(992*992):
+            # #         BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
             
-            batch_I_r = F.grid_sample(batch_I, BM, padding_mode='zeros', align_corners=True) # [b, 3, 992, 992], requires_grad=True
-            batch_I_r = batch_I_r.nan_to_num() # 默认将nan转成0
-            return batch_I_r # output: [b, 3, h, w]   
+            # # 获得BM (b, 198, 198, 2)
+            # BM = BM.transpose(2, 3).transpose(1, 2) # (b, 198, 198, 2) -> (b, 2, 198, 198)
+            # BM = F.interpolate(BM, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
+            # BM = BM.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
+            
+            # batch_I_r = F.grid_sample(batch_I, BM, padding_mode='zeros', align_corners=True) # [b, 3, 992, 992], requires_grad=True
+            # batch_I_r = batch_I_r.nan_to_num() # 默认将nan转成0
+            # return batch_I_r # output: [b, 3, h, w]   
+
+            # 全局采样
+            build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
+            # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
+            build_P_prime_reshape = build_P_prime_reshape.transpose(2, 3).transpose(1, 2) # [b, 198, 198, 2]-->[b, 2, 198, 198]
+            map = F.interpolate(build_P_prime_reshape, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
+            map = map.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
+            batch_I_r = F.grid_sample(batch_I, map, padding_mode='border', align_corners=True) # [b, 3, 992, 992], requires_grad=True
+            return batch_I_r # output: [b, 3, h, w]     
         else:
             print("error in tps loss process")
 
@@ -245,10 +255,10 @@ class estimateTransformation(nn.Module):
         self.device = device
         self.C = self._build_C(self.F) # (121,2)
         self.P = self._build_P(self.I_r_width, self.I_r_height) # (39204,2)
-        # self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float64, device=self.device)) 
-        # self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64, device=self.device))
-        self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float64)) 
-        self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float64))
+        # self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float32, device=self.device)) 
+        # self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float32, device=self.device))
+        self.register_buffer("inv_delta_C", torch.tensor(self._build_inv_delta_C(self.F, self.C), dtype=torch.float32)) 
+        self.register_buffer("P_hat", torch.tensor(self._build_P_hat(self.F, self.C, self.P), dtype=torch.float32))
     def _build_d1_C(self, F, pts):
         '''
         pts=[b,2,31,31]
@@ -385,20 +395,29 @@ class estimateTransformation(nn.Module):
         '''
         pts: (b,2,31,31)
         '''
-        batch_num = pts.shape[0]     
-        pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
-        pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31] -> [b, 2, 600, 600]
-        # for batch in range(batch_num):
-        #     pts[batch,:,:,:] = pts[batch,:,:,:] / 992
-        #     pts[batch,:,:,:] = (pts[batch,:,:,:]-0.5)*2
+        # # 局部采样法
+        # batch_num = pts.shape[0]     
+        # pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
+        # pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31] -> [b, 2, 600, 600]
+        # # for batch in range(batch_num):
+        # #     pts[batch,:,:,:] = pts[batch,:,:,:] / 992
+        # #     pts[batch,:,:,:] = (pts[batch,:,:,:]-0.5)*2
 
-        pts = pts / 992
-        pts = (pts-0.5)*2
-        pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
-        pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
-        batch_pts = pts.data.cpu().numpy()
+        # pts = pts / 992
+        # pts = (pts-0.5)*2
+        # pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
+        # pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
+        # batch_pts = pts.data.cpu().numpy()
         
-        
+        # 全图采样法
+        batch_num = pts.shape[0]
+        I_r_x = np.linspace(-1, 1, I_r_width)   # self.I_r_width (198,)
+        I_r_y = np.linspace(-1, 1, I_r_height)  # self.I_r_height (198,)        
+        I_r_grid_x, I_r_grid_y = np.meshgrid(I_r_x, I_r_y, indexing='xy')
+        batch_pts = np.stack((I_r_grid_x,I_r_grid_y),axis=2).reshape(-1, 2) # (320,320,2) -> (39204,2) # 行序优先
+        batch_pts = np.tile(np.expand_dims(batch_pts, axis=0), (batch_num, 1, 1)) 
+
+
         return batch_pts   # (b,39204,2)
 
     def _build_P_d1_hat(self, F, C, P):
@@ -430,7 +449,7 @@ class estimateTransformation(nn.Module):
     # 主函数，构造backward mapping
     def build_P_prime(self, batch_C_prime):
         batch_size = batch_C_prime.size(0) # batch_C_prime= (1,121,2),是warped图像上的控制点位置（已归一化到(-1,1)）
-        batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().cuda()), dim=1)  # batch_size x F+3 x 2 
+        batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).float().cuda()), dim=1)  # batch_size x F+3 x 2 
         # 实现 (1,121,2)+(1,3,2) in dim1= (1,124,2)，获得真实图像上的控制点
         batch_T = torch.matmul(self.inv_delta_C.repeat(batch_size,1,1), batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 124, 124]*[b,124,2] = [b, 124, 2]
         # 与求逆后的大矩阵相乘，获得参数转移矩阵T
@@ -445,16 +464,17 @@ class estimateTransformation(nn.Module):
         batch_C_prime: [b, 121, 2] 归一化的w1, p1
         '''
         batch_size = batch_C_prime.size(0) # batch_C_prime= (1,121,2),是warped图像上的控制点位置（已归一化到(-1,1)）
-        batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).double().cuda()), dim=1)  # batch_size x F+3 x 2 
+        batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).float().cuda()), dim=1)  # batch_size x F+3 x 2 
         # 实现 (1,121,2)+(1,3,2) in dim1= (1,124,2)，获得真实图像上的控制点
         self.D1C = self._build_d1_C(self.F, pt_d1) # input:(b,2,11,11) output:(b,121,2)
-        self.inv_delta_d1C = torch.tensor(self._build_inv_delta_d1_C(self.F, self.D1C), dtype=torch.float64).cuda()
+        self.inv_delta_d1C = torch.tensor(self._build_inv_delta_d1_C(self.F, self.D1C), dtype=torch.float32).cuda()
         batch_T = torch.matmul(self.inv_delta_d1C, batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 124, 124]*[b,124,2] = [b, 124, 2]
         # 与求逆后的大矩阵相乘，获得参数转移矩阵T
         
         self.D1P = self._build_d1_P(self.I_r_width, self.I_r_height, pt_d1) #加密的点 (b, 39204, 2)
-        self.d1P_hat = torch.tensor(self._build_P_d1_hat(self.F, self.D1C, self.D1P), dtype=torch.float64).cuda()
+        self.d1P_hat = torch.tensor(self._build_P_d1_hat(self.F, self.D1C, self.D1P), dtype=torch.float32).cuda()
         batch_P_prime = torch.matmul(self.d1P_hat, batch_T)  # batch_size x n x 2  # [2,39204, 124]*[2, 124, 2]= [2, 39204, 2]
 
-        dense_pt_d1 = self.D1P
-        return batch_P_prime, dense_pt_d1 # batch_size x n x 2  # [2, 39204, 2])
+        # dense_pt_d1 = self.D1P
+        return batch_P_prime # batch_size x n x 2  # [2, 39204, 2])
+        # return batch_P_prime, dense_pt_d1 # batch_size x n x 2  # [2, 39204, 2])

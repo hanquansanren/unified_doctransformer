@@ -127,11 +127,11 @@ def train(args):
     from networkV4 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
     n_classes = 2
     model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)
-    model.double()
+    model.float()
     # model_val = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)
-    # model_val.double()
+    # model_val.float()
     tps_for_loss = get_dewarped_intermediate_result()
-    tps_for_loss.double()
+    tps_for_loss.float()
 
 
 
@@ -272,12 +272,12 @@ def train(args):
                 
                 perturbed_wi_list = tps_for_loss.module.perturb_warp(args.batch_size) 
                 # perturbed_wi_list: 2 elements, each element is [6, 2, 11, 11]
-                # w_im_p1 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
-                # w_im_p2 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
-                w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
-                w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).double(), align_corners=True)
+                # w_im_p1 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
+                # w_im_p2 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
+                w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
+                w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 '''vis for p1 and p2'''
-                if (global_step-1)%1==0:
+                if (global_step-1)%5==0:
                     w1_show = w1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
                     w1_show = w1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
                     cv2.imwrite('./intermedia_tps_vis/mark_origin_wild.png', w1_show)
@@ -290,8 +290,7 @@ def train(args):
 
                 # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
                 # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
-                input = torch.cat((w_im_p1,w_im_p2,w1),dim=0)
-                triple_outputs = model(input) # input:d1,d2,w1
+                triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1
                 # (3*b, 2, 31, 31) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
                 # outputs1, D1_pred: triple_outputs[0:args.batch_size]
                 # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
@@ -319,13 +318,13 @@ def train(args):
                 mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy())
                 loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
                 loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
-                loss = loss3
-                # loss = loss3 + 0.5*(loss6 + loss7)
+                # loss = loss3
+                loss = loss3 + 0.5*(loss6 + loss7)
                 # loss = loss1 + (loss3 + loss4 + loss5)
                 print(time.time()-t1,'second')
                 
                 '''vis for fourier dewarp'''
-                if (global_step-1)%1==0:
+                if (global_step-1)%5==0:
                     p1_pred_show = triple_outputs[0*args.batch_size:1*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
                     perturbed_img_mark1 = location_mark(w1_p1.copy(), p1_pred_show, (0, 0, 255))
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_p1.png', perturbed_img_mark1)
@@ -336,7 +335,7 @@ def train(args):
                     perturbed_img_mark3 = location_mark(w1_show.copy(), w1_pred_show, (0, 0, 255))
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_w1.png', perturbed_img_mark3)
 
-                    flatten_img1 = rectified_img6[0].to(args.device)
+                    flatten_img1 = mask2[0]*rectified_img6[0].to(args.device)
                     flatten_img_show1 = flatten_img1.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
                     flatten_img_show1 = flatten_img_show1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
                     cv2.imwrite('./intermedia_tps_vis/mark_rectified_p1.png', flatten_img_show1)
@@ -345,7 +344,7 @@ def train(args):
                     ref_img1_show = ref_img1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
                     cv2.imwrite('./intermedia_tps_vis/mark_ref_target_p2.png', ref_img1_show)
 
-                    flatten_img2 = rectified_img7[0].to(args.device)
+                    flatten_img2 = mask1[0]*rectified_img7[0].to(args.device)
                     flatten_img_show2 = flatten_img2.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
                     flatten_img_show2 = flatten_img_show2.astype(np.uint8) # dtype('float64') -> dtype('uint8')
                     cv2.imwrite('./intermedia_tps_vis/mark_rectified_p2.png', flatten_img_show2)
@@ -366,7 +365,7 @@ def train(args):
 
 
                 loss.backward()
-                print('loss:', loss)
+                # print('loss:', loss)
                 # print(x.grad)
                 optimizer.step()
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
@@ -483,7 +482,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=5,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=10,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 

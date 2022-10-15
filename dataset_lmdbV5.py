@@ -121,14 +121,14 @@ class my_unified_dataset(data.Dataset):
 			# mask1 = mask1.transpose(2, 0, 1)
 			# mask2 = mask2.transpose(2, 0, 1)
 			
-			# d1 = torch.from_numpy(d1).double() # torch.float32 torch.Size([3, 992, 992])
-			# lbl1 = torch.from_numpy(lbl1).double()    # torch.float64 torch.Size([2, 31, 31])
-			# d2 = torch.from_numpy(d2).double() # torch.float32 torch.Size([3, 992, 992])
-			# lbl2 = torch.from_numpy(lbl2).double()    # torch.float64 torch.Size([2, 31, 31])
-			w1 = torch.from_numpy(w1).double()     # torch.float32 torch.Size([3, 992, 992])
-			di = torch.from_numpy(di).double()    # torch.float32 torch.Size([3, 992, 992])
-			# mask1 = torch.from_numpy(mask1).double()
-			# mask2 = torch.from_numpy(mask2).double()
+			# d1 = torch.from_numpy(d1).float() # torch.float32 torch.Size([3, 992, 992])
+			# lbl1 = torch.from_numpy(lbl1).float()    # torch.float64 torch.Size([2, 31, 31])
+			# d2 = torch.from_numpy(d2).float() # torch.float32 torch.Size([3, 992, 992])
+			# lbl2 = torch.from_numpy(lbl2).float()    # torch.float64 torch.Size([2, 31, 31])
+			w1 = torch.from_numpy(w1).float()     # torch.float32 torch.Size([3, 992, 992])
+			di = torch.from_numpy(di).float()    # torch.float32 torch.Size([3, 992, 992])
+			# mask1 = torch.from_numpy(mask1).float()
+			# mask2 = torch.from_numpy(mask2).float()
 			# images = torch.cat((d1,d2,w1,di),dim=0)
 			# images = torch.cat((w1,di),dim=0)
 			# labels = torch.cat((lbl1,lbl2),dim=0)
@@ -154,7 +154,7 @@ class my_unified_dataset(data.Dataset):
 
 	def transform_im(self, im):
 		im = im.transpose(2, 0, 1)
-		im = torch.from_numpy(im).double()
+		im = torch.from_numpy(im).float()
 
 		return im
 
