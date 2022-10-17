@@ -1,16 +1,18 @@
 '''
 2022/9/30
 Weiguang Zhang
-V4 means DDCP+FDRNet+data_concat
+V6 means DDCP+FDRNet+data_concat+ better initial
 '''
 
 import math
 import pickle
+import numpy as np
 import torch.nn as nn
 import torch
 # from xgw.dewarp.fiducial_points.networks.resnet import *
 import torch.nn.init as tinit
 import torch.nn.functional as F
+import itertools
 
 def conv3x3(in_channels, out_channels, stride=1):
 	return nn.Conv2d(in_channels, out_channels, kernel_size=3,  stride=stride, padding=1)
@@ -133,8 +135,14 @@ class model_handlebar(nn.Module):
 		elif BatchNorm == 'GN':
 			BatchNorm = nn.GroupNorm
 
+
+		target_control_points = torch.Tensor(list(itertools.product(
+            np.linspace(0, 992, 8),
+            np.linspace(0, 992, 8),)))
+
+
 		# 这里实现了类DilatedResnet的实例化
-		self.dilated_unet = architecture(self.n_classes, self.num_filter, BatchNorm, in_channels=self.in_channels)
+		self.dilated_unet = architecture(self.n_classes, self.num_filter, BatchNorm, target_control_points, in_channels=self.in_channels, )
 
 	def forward(self, images1, images2=None, w_im=None):
 		return self.dilated_unet(images1, images2, w_im)
@@ -142,7 +150,7 @@ class model_handlebar(nn.Module):
 
 
 class DilatedResnet(nn.Module):
-	def __init__(self, n_classes, num_filter, BatchNorm, in_channels=3):
+	def __init__(self, n_classes, num_filter, BatchNorm, target_control_points, in_channels=3):
 		super(DilatedResnet, self).__init__()
 		self.in_channels = in_channels # 图片的输入通道
 		self.n_classes = n_classes # 标准控制点的通道数（维度），因为只有xy，所以为2
@@ -150,7 +158,7 @@ class DilatedResnet(nn.Module):
 		# act_fn = nn.PReLU()
 		act_fn = nn.ReLU(inplace=True)
 		# act_fn = nn.LeakyReLU(0.2)
-
+		self.target_control_points = target_control_points
 		map_num = [1, 2, 4, 8, 16] # 通道数控制器，乘以32后分别是：
 		# idx*32:[32, 64, 128, 256, 512]
 		# idx:   [0   1    2    3    4 ]
@@ -243,13 +251,28 @@ class DilatedResnet(nn.Module):
 			BatchNorm(self.num_filter * map_num[0]),
 			nn.PReLU(),
 
-			nn.Conv2d(self.num_filter * map_num[0], self.n_classes, kernel_size=3, stride=1, padding=1),
+
+			nn.Conv2d(self.num_filter * map_num[0], self.n_classes, kernel_size=3, stride=1, padding=1)
 			# input 32, output 2
 		)
+
+		self.last_layer = nn.Linear(128, 128)
 
 		# self.segment_regress = nn.Linear(self.num_filter * map_num[2]*31*31, 2)
 
 		self._initialize_weights()
+		bias = self.target_control_points.view(-1) # (128,1) (X,Y,X,Y,X,Y,...) # 列序优先
+		# print(self.last_layer.bias.size())
+		self.last_layer.bias.data.copy_(bias)
+		self.last_layer.weight.data.zero_()
+		# self._output_initial()
+
+		
+	def _output_initial(self):
+		bias = self.target_control_points.view(8,8,2) # (128,1) (X,Y,X,Y,X,Y,...) # 列序优先
+		for m in self.last_layer():
+			m.weight.data.zero_()
+			m.bias.data.copy_(bias)
 
 	def _initialize_weights(self):
 		for m in self.modules(): # 遍历所有的network结构
@@ -267,6 +290,8 @@ class DilatedResnet(nn.Module):
 				# m.weight.data.normal_(0, 0.01)
 				if m.bias is not None:
 					tinit.constant_(m.bias, 0)
+		
+
 
 	# def cat(self, trans, down):
 	# 	return torch.cat([trans, down], dim=1)
@@ -285,8 +310,9 @@ class DilatedResnet(nn.Module):
 		bridge_concate1 = torch.cat([bridge_11, bridge_12, bridge_13, bridge_14, bridge_15, bridge_16], dim=1) 
 		# output: torch.Size([1, 1536, 32, 32])
 		bridge1 = self.bridge_concate(bridge_concate1)# torch.Size([1, 128, 31, 31]) # 第六层，输出层 256->128
-		out_regress1 = self.out_regress(bridge1) # torch.Size([1, 2, 31, 31]) #第七八层，包含两次卷积 128->32->2 
-		
+		out_regress1 = self.out_regress(bridge1) # torch.Size([1, 2, 8, 8]) #第七八层，包含两次卷积 128->32->2 
+		out_regress1 = out_regress1.view(-1, 128)
+		out_regress1 = self.last_layer(out_regress1)
 
 		return out_regress1
 

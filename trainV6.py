@@ -1,7 +1,7 @@
 '''
-2022/9/6
+2022/10/16
 Weiguang Zhang
-V5 means pure FDRNet
+V6 means pure FDRNet + 8*8 output
 '''
 import os, sys
 import argparse
@@ -26,7 +26,7 @@ from os.path import join as pjoin
 import utilsV4 as utils
 from utilsV4 import AverageMeter
 from dataset_lmdbV5 import my_unified_dataset
-from intermediate_dewarp_lossV5 import get_dewarped_intermediate_result
+from intermediate_dewarp_lossV6 import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
     '''
@@ -67,21 +67,23 @@ def location_mark(img, location, color=(0, 0, 255)):
         cv2.circle(img,(int(l[0]) , int(l[1])), 3, color, -1)
     return img
 
-def mask_calculator(lbl):
+def mask_calculator(lbl, single_line):
     '''
     lbl:(b,2,31,31)
+    single_line: 7
     '''
     batch_num = lbl.shape[0]
     
     mask = np.zeros((batch_num,992,992,3),dtype=bool)
     for batch in range(batch_num):
-        pt_edge_batch = np.zeros((batch_num,2,120))
-        pt_edge_batch[batch,:,0:31] = lbl[batch,:,0,:]
-        for num in range(1,30,1):
-            pt_edge_batch[batch,:,30+num]= lbl[batch,:,num,30]
-        pt_edge_batch[batch,:,60:91] = lbl[batch,:,30,:][:,::-1]
-        for num in range(29,0,-1):
-            pt_edge_batch[batch,:,90+num]= lbl[batch,:,30-num,0]
+        pt_edge_batch = np.zeros((batch_num,2,4*single_line))
+        pt_edge_batch[batch,:,0:(single_line+1)] = lbl[batch,:,0,:]
+        for num in range(1,single_line,1):
+            pt_edge_batch[batch,:,single_line+num]= lbl[batch,:,num,single_line]
+        
+        pt_edge_batch[batch,:,(2*single_line):(3*single_line+1)] = lbl[batch,:,single_line,:][:,::-1]
+        for num in range((single_line-1),0,-1):
+            pt_edge_batch[batch,:,(3*single_line+num)]= lbl[batch,:,(single_line-num),0]
 
         img = np.zeros((992, 992, 3), dtype=np.int32)
         pts = pt_edge_batch.round().astype(int).transpose(0,2,1)
@@ -124,7 +126,7 @@ def train(args):
     args.device2 = torch.device('cuda:'+str(device_ids_visual_list[2])) # 选择列表的第一块GPU，用于存放模型参数，模型的结构
     
     ''' load model '''
-    from networkV4 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
+    from networkV6 import model_handlebar, DilatedResnet, DilatedResnet_for_test_single_image
     n_classes = 2
     model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)
     model.float()
@@ -290,8 +292,9 @@ def train(args):
 
                 # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
                 # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
-                triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1
-                # (3*b, 2, 31, 31) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
+                triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1 # 6*128
+                triple_outputs = triple_outputs[0].reshape(2,8,8)
+                # (3*b, 2, 8, 8) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
                 # outputs1, D1_pred: triple_outputs[0:args.batch_size]
                 # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
                 # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
@@ -314,8 +317,8 @@ def train(args):
                 loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
                 # loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
                 # loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
-                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy()) # input: (b,2,31,31)
-                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy())
+                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # input: (b,2,31,31)
+                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
                 loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
                 loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
                 # loss = loss3
@@ -482,7 +485,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=10,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -504,7 +507,7 @@ if __name__ == '__main__':
     # big 
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 84
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-15/2022-10-15 13:19:18 @2022-09-28/84/2022-09-28@2022-10-15 13:19:18DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-15/2022-10-15 13:19:18 @2022-09-28/84/2022-09-28@2022-10-15 13:19:18DDCP.pkl')
     
     parser.add_argument('--parallel', default='023', type=list,
                         help='choice the gpu id for parallel ')
