@@ -200,6 +200,14 @@ class get_dewarped_intermediate_result(nn.Module):
             # build_P_prime, dense_pt_d1 = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)
             build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)      
             
+            # 方法3：
+            z = 255
+            X = np.linspace(0, 991, 1)
+            Y = np.linspace(0, 991, 1)
+            X, Y = np.meshgrid(X, Y, indexing='xy')  # 2D grid for interpolation
+            interp = LinearNDInterpolator(list(zip(x, y)), z)
+            Z = interp(X, Y)
+
             # 局部采样
             # # build_P_prime: (b,980000,2)
             # # dense_pt_d1: (b,980000,2)
@@ -372,7 +380,7 @@ class estimateTransformation(nn.Module):
         I_r_x = np.linspace(-1, 1, I_r_width)   # self.I_r_width (320,)
         I_r_y = np.linspace(-1, 1, I_r_height)  # self.I_r_height (320,)        
         
-        I_r_grid_x, I_r_grid_y = np.meshgrid(I_r_x, I_r_y, indexing='xy')
+        I_r_grid_x, I_r_grid_y = np.meshgrid(I_r_x, I_r_y) # , indexing='xy'
         # 最开始的版本
         # P = np.stack(np.meshgrid(I_r_x, I_r_y),axis=2).reshape(-1, 2) # (320,320,2) -> (102400,2)
         P = np.stack((I_r_grid_x,I_r_grid_y),axis=2).reshape(-1, 2) # (320,320,2) -> (102400,2) # 行序优先
@@ -400,27 +408,27 @@ class estimateTransformation(nn.Module):
         '''
         pts: (b,2,31,31)
         '''
-        # # 局部采样法
-        # batch_num = pts.shape[0]     
-        # pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
-        # pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31] -> [b, 2, 600, 600]
-        # # for batch in range(batch_num):
-        # #     pts[batch,:,:,:] = pts[batch,:,:,:] / 992
-        # #     pts[batch,:,:,:] = (pts[batch,:,:,:]-0.5)*2
+        # 局部采样法
+        batch_num = pts.shape[0]     
+        pts = pts.permute(0,1,3,2) # [b, 2, 31, 31] ->  [b, 2, 31, 31]   BCHW -> BCWH
+        pts = F.interpolate(pts, size=(198,198), mode='bilinear', align_corners=True) # [b, 2, 31, 31] -> [b, 2, 600, 600]
+        # for batch in range(batch_num):
+        #     pts[batch,:,:,:] = pts[batch,:,:,:] / 992
+        #     pts[batch,:,:,:] = (pts[batch,:,:,:]-0.5)*2
 
-        # pts = pts / 992
-        # pts = (pts-0.5)*2
-        # pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
-        # pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
-        # batch_pts = pts.data.cpu().numpy()
+        pts = pts / 992
+        pts = (pts-0.5)*2
+        pts = pts.permute(0,2,3,1)  # [b, 2, 31, 31] -> [b, 31, 31, 2]
+        pts = pts.reshape(batch_num, -1, 2) # (b,39204,2)          
+        batch_pts = pts.data.cpu().numpy()
         
         # 全图采样法
-        batch_num = pts.shape[0]
-        I_r_x = np.linspace(-1, 1, I_r_width)   # self.I_r_width (198,)
-        I_r_y = np.linspace(-1, 1, I_r_height)  # self.I_r_height (198,)        
-        I_r_grid_x, I_r_grid_y = np.meshgrid(I_r_x, I_r_y, indexing='xy') # indexing='xy'表示行序优先
-        batch_pts = np.stack((I_r_grid_x,I_r_grid_y),axis=2).reshape(-1, 2) # (320,320,2) -> (39204,2) # 行序优先
-        batch_pts = np.tile(np.expand_dims(batch_pts, axis=0), (batch_num, 1, 1)) 
+        # batch_num = pts.shape[0]
+        # I_r_x = np.linspace(-1, 1, I_r_width)   # self.I_r_width (198,)
+        # I_r_y = np.linspace(-1, 1, I_r_height)  # self.I_r_height (198,)        
+        # I_r_grid_x, I_r_grid_y = np.meshgrid(I_r_x, I_r_y, indexing='xy') # indexing='xy'表示行序优先
+        # batch_pts = np.stack((I_r_grid_x,I_r_grid_y),axis=2).reshape(-1, 2) # (320,320,2) -> (39204,2) # 行序优先
+        # batch_pts = np.tile(np.expand_dims(batch_pts, axis=0), (batch_num, 1, 1)) 
 
 
         return batch_pts   # (b,39204,2)

@@ -62,10 +62,15 @@ def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_ta
     writer.add_image(inp_tag, grid_inp, global_step)
     
 def location_mark(img, location, color=(0, 0, 255)):
-    # stepSize = 0
     for l in location.astype(np.int64).reshape(-1, 2):
         cv2.circle(img,(int(l[0]) , int(l[1])), 3, color, -1)
     return img
+
+def vis_single(img, url):
+    vis_output = img[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
+    vis_output = vis_output.astype(np.uint8) # dtype('float32') -> dtype('uint8')
+    cv2.imwrite(url, vis_output)
+    return vis_output
 
 def mask_calculator(lbl, single_line):
     '''
@@ -164,7 +169,7 @@ def train(args):
     else:
         raise Exception(args.optimizer,'<-- please choice optimizer')
     # LR Scheduler 
-    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+    scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=10, verbose=True)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 90, 150, 200], gamma=0.5)
 
     ''' load checkpoint '''
@@ -271,7 +276,6 @@ def train(args):
                 global_step+=1
                 # t1=time.time()
                 
-                
                 perturbed_wi_list = tps_for_loss.module.perturb_warp(args.batch_size) 
                 # perturbed_wi_list: 2 elements, each element is [6, 2, 11, 11]
                 # w_im_p1 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
@@ -280,29 +284,21 @@ def train(args):
                 w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 '''vis for p1 and p2'''
                 if (global_step-1)%5==0:
-                    w1_show = w1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    w1_show = w1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_origin_wild.png', w1_show)
-                    w1_p1 = w_im_p1[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    w1_p1 = w1_p1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_origin_p1.png', w1_p1)
-                    w1_p2 = w_im_p2[0].detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    w1_p2 = w1_p2.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_origin_p2.png', w1_p2)
+                    w1_show = vis_single(w1, './intermedia_tps_vis/mark_origin_wild.png')
+                    w1_p1 = vis_single(w_im_p1, './intermedia_tps_vis/mark_origin_p1.png')
+                    w1_p2 = vis_single(w_im_p2, './intermedia_tps_vis/mark_origin_p2.png')
 
                 # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
                 # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
                 triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1 # 6*128
-                triple_outputs = triple_outputs[0].reshape(2,8,8)
+                triple_outputs = triple_outputs.reshape(-1,8,8,2)
+                triple_outputs = triple_outputs.permute(0,3,1,2)
                 # (3*b, 2, 8, 8) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
                 # outputs1, D1_pred: triple_outputs[0:args.batch_size]
                 # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
                 # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
                 
                 # tps loss part
-                # rectified_img3, ref_img3 = tps_for_loss(images[2*args.batch_size:3*args.batch_size], \
-                #                         batch_ref=images[3*args.batch_size:4*args.batch_size], \
-                #                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
                 rectified_img3, ref_img3 = tps_for_loss(w1, \
                                         batch_ref=di, \
                                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
@@ -338,38 +334,19 @@ def train(args):
                     perturbed_img_mark3 = location_mark(w1_show.copy(), w1_pred_show, (0, 0, 255))
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_w1.png', perturbed_img_mark3)
 
-                    flatten_img1 = mask2[0]*rectified_img6[0].to(args.device)
-                    flatten_img_show1 = flatten_img1.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    flatten_img_show1 = flatten_img_show1.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_rectified_p1.png', flatten_img_show1)
-                    ref_img1 = mask2[0]*w_im_p2[0].to(args.device)
-                    ref_img1_show = ref_img1.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    ref_img1_show = ref_img1_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_ref_target_p2.png', ref_img1_show)
+                    vis_single(rectified_img6.to(args.device), './intermedia_tps_vis/mark_rectified_p1.png')
+                    vis_single(w_im_p2.to(args.device), './intermedia_tps_vis/mark_ref_target_p2.png')
 
-                    flatten_img2 = mask1[0]*rectified_img7[0].to(args.device)
-                    flatten_img_show2 = flatten_img2.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    flatten_img_show2 = flatten_img_show2.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_rectified_p2.png', flatten_img_show2)
-                    ref_img2 = mask1[0]*w_im_p1[0].to(args.device)
-                    ref_img2_show = ref_img2.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    ref_img2_show = ref_img2_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_ref_target_p1.png', ref_img2_show)
+                    vis_single(rectified_img7.to(args.device), './intermedia_tps_vis/mark_rectified_p2.png')
+                    vis_single(w_im_p1.to(args.device), './intermedia_tps_vis/mark_ref_target_p1.png')
 
-                    flatten_img3 = rectified_img3[0].to(args.device)
-                    flatten_img_show3 = flatten_img3.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    flatten_img_show3 = flatten_img_show3.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_rectified_w1.png', flatten_img_show3)
-                    ref_img3 = ref_img3[0].to(args.device)
-                    ref_img3_show = ref_img3.detach().cpu().numpy().transpose(1,2,0) # NCHW-> NHWC (h, w, 3), dtype('float64')
-                    ref_img3_show = ref_img3_show.astype(np.uint8) # dtype('float64') -> dtype('uint8')
-                    cv2.imwrite('./intermedia_tps_vis/mark_ref_target_di.png', ref_img3_show)
+                    vis_single(rectified_img3.to(args.device), './intermedia_tps_vis/mark_rectified_w1.png')
+                    vis_single(ref_img3.to(args.device), './intermedia_tps_vis/mark_ref_target_di.png')
+
 
 
 
                 loss.backward()
-                # print('loss:', loss)
-                # print(x.grad)
                 optimizer.step()
                 losses.update(loss.item()) # 自定义实例，用于计算平均值
                 loss_list.append(loss.item())
@@ -485,7 +462,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=10,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 

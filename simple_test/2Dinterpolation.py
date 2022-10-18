@@ -37,13 +37,13 @@ import numpy as np
 from scipy.interpolate import LinearNDInterpolator
 import matplotlib.pyplot as plt
 rng = np.random.default_rng()
-x = rng.random(10) - 0.5
-y = rng.random(10) - 0.5
+x = rng.random(100)
+y = rng.random(100)
 
 aaaa = y[range(1,3)]
 print(aaaa)
 
-z = np.hypot(x, y)
+z = np.array([255 for i in range(100)])
 X = np.linspace(min(x), max(x))
 Y = np.linspace(min(y), max(y))
 X, Y = np.meshgrid(X, Y)  # 2D grid for interpolation
