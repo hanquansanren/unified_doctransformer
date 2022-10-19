@@ -3,6 +3,9 @@
 Weiguang Zhang
 V6 means pure FDRNet + 8*8 output
 '''
+from ast import Not
+from queue import Empty
+from select import select
 import numpy as np
 import torch
 import torch.nn as nn
@@ -10,12 +13,13 @@ import torch.nn.functional as F
 from scipy.interpolate import LinearNDInterpolator
 import matplotlib.pyplot as plt
 import random
+import time
 import cv2
 from tps_warp import TpsWarp
 
 class get_dewarped_intermediate_result(nn.Module):
 
-    def __init__(self, output_size=[992/5, 992/5], pt_num=[8, 8], device=torch.device('cuda:2')):
+    def __init__(self, output_size=[200, 200], pt_num=[8, 8], device=torch.device('cuda:2')):
         """
         通过初始化中的实例化estimateTransformation，间接实现了TPS。该类中仅包含F.grid_sample的过程
         input:
@@ -28,7 +32,7 @@ class get_dewarped_intermediate_result(nn.Module):
         super(get_dewarped_intermediate_result, self).__init__()
         self.f_row_num, self.f_col_num = pt_num # (8, 8)
         self.F = self.f_row_num * self.f_col_num # 64 总控制点数量
-        self.output_size = list(map(int, output_size)) # (h, w)(198,198)
+        self.output_size = list(map(int, output_size)) # (h, w)(400,400)
         self.device = device
         # self.lowpart, self.hpf = self.fdr()
         self.estimateTransformation = estimateTransformation(self.F, self.output_size)
@@ -152,13 +156,14 @@ class get_dewarped_intermediate_result(nn.Module):
         return perturbed_wi_list
 
 
-    def forward(self, batch_I, batch_ref=None, batch_src_pt=None, batch_trg_pt=None, output_shape = [992,992]):
+    def forward(self, batch_I, batch_ref=None, batch_src_pt=None, batch_trg_pt=None, output_shape = [992,992], trg_mask = None):
         '''
         batch_I:(tensor) [b, 3, 992, 992] 输入warped图像, requires_grad=False
         batch_ref:(tensor) [b, 3, 992, 992] 输入reference digital图像, requires_grad=False
-        batch_src_pt:(tensor) [b, 2, 31, 31] 预测的warped图像控制点,行序优先(因为采用了reshape/view,默认行序优先) requires_grad=True,梯度将从这里回传
-        batch_trg_pt:(tensor) [b, 2, 31, 31] 预测的flatten图像控制点,行序优先(因为采用了reshape/view,默认行序优先) requires_grad=False,不传梯度
+        batch_src_pt:(tensor) [b, 2, 8, 8] 预测的warped图像控制点,行序优先(因为采用了reshape/view,默认行序优先) requires_grad=True,梯度将从这里回传
+        batch_trg_pt:(tensor) [b, 2, 8, 8] 预测的flatten图像控制点,行序优先(因为采用了reshape/view,默认行序优先) requires_grad=False,不传梯度
         output_shape:(list) h,w,[992, 992] 用于生成regular的参考点
+        trg_mask: [b,3,992,992] 需要加密的target点集
         '''
         
         if batch_trg_pt is None:
@@ -190,23 +195,77 @@ class get_dewarped_intermediate_result(nn.Module):
             return batch_I_r, batch_ref_ffted # output: [b, 3, h, w]
         # 完成shrunken h*w形式的 backward mapping构建
         elif batch_trg_pt is not None:
+            # source pts normalized to range within [-1, 1] 
             batch_num = batch_src_pt.shape[0]
             # batch_src_pt = batch_src_pt[:,:,::3,::3] / 992 # [b, 2, 8, 8] -> [b, 2, 8, 8]
             batch_src_pt = batch_src_pt / 992 # [b, 2, 8, 8]
-            batch_src_pt = batch_src_pt.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 11, 11] ->  [b, 11, 11, 2] -> [b, 121, 2] 
-            # batch_pt_norm = (batch_pt_norm[None,:]-0.5)*2
-            batch_src_pt = (batch_src_pt[:]-0.5)*2
-            # key difference
-            # build_P_prime, dense_pt_d1 = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)
-            build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt)      
+            batch_src_pt = batch_src_pt.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 8, 8] ->  [b, 8, 8, 2] -> [b, 64, 2] 
+            batch_src_pt = (batch_src_pt[:]-0.5)*2 # [b, 64, 2]
             
-            # 方法3：
-            z = 255
-            X = np.linspace(0, 991, 1)
-            Y = np.linspace(0, 991, 1)
-            X, Y = np.meshgrid(X, Y, indexing='xy')  # 2D grid for interpolation
-            interp = LinearNDInterpolator(list(zip(x, y)), z)
-            Z = interp(X, Y)
+            # mask downsampling: [b, 3, 992, 992] -> [b, 3, 400, 400] 
+            trg_mask = trg_mask[:,0:1,:,:].float() # [b, 3, 992, 992] -> [b, 1, 992, 992] 
+            trg_mask = F.interpolate(trg_mask, [200,200],  mode='bilinear', align_corners=True) # [b, 1, 992, 992] -> [b, 1, 400, 400] 
+            trg_mask = trg_mask.cpu().numpy() # (b, 1, 400, 400)
+            
+            # mask to coodinate
+            batch_coodinate = np.zeros((batch_num, 40000, 2))
+            for b in range(batch_num):
+                c_short = np.argwhere(trg_mask[b,0,...]>0)
+                c_short = np.pad(c_short, (0,40000-len(c_short)), 'constant', constant_values=-100)[:,0:2]
+                batch_coodinate[b] = c_short
+
+            build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt, batch_coodinate)
+            # out: (b, 160000, 2)，可能在尾部包含大量冗余，需要结合batch_coodinate(batch_num, 160000, 2)进行剔除
+            # BM = torch.full((batch_num, 400, 400, 2), float('nan')).cuda().float() 
+            BM = torch.full((batch_num, 200, 200, 2), 0.).cuda().float()
+            
+
+            # fill in small bm from dense local pt bm
+            for b in range(batch_num):
+                redundant_c = np.argwhere(batch_coodinate[b] <= -99)
+                # print(len(batch_coodinate[b]))
+                # print(redundant_c.size)
+                if redundant_c.size != 0:
+                    # print(np.argwhere(batch_coodinate[b] <= -99)[0][0])
+                    for jj in range(np.argwhere(batch_coodinate[b] <= -99)[0][0]):
+                        BM[b,np.int(batch_coodinate[b,jj,1]), np.int(batch_coodinate[b,jj,0]),:] = build_P_prime[b,jj,:]
+                else:
+                    # t2 = time.time()
+                    for l in range(200*200):
+                        # print(build_P_prime[b,l,:])
+                        # print(BM[b,batch_coodinate[b,l,1], batch_coodinate[b,l,0],:])
+                        BM[b,np.int(batch_coodinate[b,l,1]), np.int(batch_coodinate[b,l,0]),:] = build_P_prime[b,l,:]
+                    # print(time.time() - t2) 
+
+
+            # # mask to dense coordinate
+            # X = torch.linspace(0, 399, steps=400) 
+            # Y = torch.linspace(0, 399, steps=400)
+            # X, Y = torch.meshgrid(X, Y, indexing='xy')
+            # standard_pts = torch.stack((X, Y), dim=0).repeat(batch_num,1,1,1).cuda()  # [b, 2, 400, 400]
+            # selected_standard_pts = (trg_mask * standard_pts) #.reshape(160000,2)
+            
+            # trg_mask_pt = torch.empty((batch_num, 160000, 2)).cuda() # [b,N,2]
+
+
+            # print("OK")
+            # for b in range(batch_num):
+            #     for (i,j) in zip(selected_standard_pts[b,0,:,:], selected_standard_pts[b,1,:,:]):
+            #         i[(1 < x) & (x < 5)]
+            #         for (x, y) in zip(i,j):
+            #             if x==0 and y==0:
+            #                 continue
+            #             else:
+            #                 trg_mask_pt = torch.vstack((trg_mask_pt, torch.stack((x, y)).unsqueeze(0)))
+            #     # input: 
+            #     # batch_src_pt：[4, 64, 2] 
+            #     # batch_trg_pt：[4, 2, 8, 8]
+            #     # trg_mask_pt：[N,2]
+            #     build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt[b], batch_trg_pt[b], trg_mask_pt[1:,:])          
+            #     # out: build_P_prime (160000,2)
+ 
+
+
 
             # 局部采样
             # # build_P_prime: (b,980000,2)
@@ -242,11 +301,11 @@ class get_dewarped_intermediate_result(nn.Module):
             # batch_I_r = batch_I_r.nan_to_num() # 默认将nan转成0
             # return batch_I_r # output: [b, 3, h, w]   
 
-            # 全局采样
-            build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
-            # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
-            build_P_prime_reshape = build_P_prime_reshape.transpose(2, 3).transpose(1, 2) # [b, 198, 198, 2]-->[b, 2, 198, 198]
-            map = F.interpolate(build_P_prime_reshape, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
+            # resize small bm to big bm
+            # build_P_prime_reshape = BM.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
+            # # output: [b, shrunken h, shrunken w, 2]=[b, 400, 400, 2]
+            build_P_prime_reshape = BM.transpose(2, 3).transpose(1, 2) # [b, 400, 400, 2]-->[b, 2, 400, 400]
+            map = F.interpolate(build_P_prime_reshape, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 400, 400]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
             map = map.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
             batch_I_r = F.grid_sample(batch_I, map, padding_mode='border', align_corners=True) # [b, 3, 992, 992], requires_grad=True
             return batch_I_r # output: [b, 3, h, w]     
@@ -436,10 +495,13 @@ class estimateTransformation(nn.Module):
     def _build_P_d1_hat(self, F, C, P):
         '''
         P_hat也是大矩阵，是根据参考点和P
-        F=961
+        F=64
         d1C: (b,961,2) 
-        d1P: (b,980000,2) numpy
+        d1P: (b,160000,2) numpy
         '''
+        P = P / 200
+        P = (P-0.5)*2 
+
         batch_num = P.shape[0]
         n = P.shape[1]  # n (= self.I_r_width x self.I_r_height) # 39204
         P_tile = np.tile(np.expand_dims(P, axis=2), (1, 1, F, 1))  # n x 2 -> n x 1 x 2 -> n x F x 2  ==(b,39204,1,2) tile in (1,1,961,1) = (b, 39204, 961, 2)
@@ -471,22 +533,24 @@ class estimateTransformation(nn.Module):
         return batch_P_prime  # batch_size x n x 2 
 
     # 主函数2，构造backward mapping
-    def build_P_prime_for_d1(self, batch_C_prime, pt_d1):
+    def build_P_prime_for_d1(self, batch_C_prime, pt_d1, trg_dense_pt):
         '''
-        pt_d1: (b,2,31,31),是已知的target的pred,尚未归一化, p2
-        batch_C_prime: [b, 121, 2] 归一化的w1, p1
+        pt_d1: (b,2,8,8),是已知的target的pred,尚未归一化, p2
+        batch_C_prime: [b, 64, 2] 归一化的source pred
+        trg_dense_pt: (b,160000,2) numpy,未归一化的密集点坐标
         '''
-        batch_size = batch_C_prime.size(0) # batch_C_prime= (1,121,2),是warped图像上的控制点位置（已归一化到(-1,1)）
+        batch_size = batch_C_prime.size(0) # batch_C_prime= (1,64,2),是warped图像上的控制点位置（已归一化到(-1,1)）
         batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).float().cuda()), dim=1)  # batch_size x F+3 x 2 
         # 实现 (1,121,2)+(1,3,2) in dim1= (1,124,2)，获得真实图像上的控制点
-        self.D1C = self._build_d1_C(self.F, pt_d1) # input:(b,2,11,11) output:(b,121,2)
+        self.D1C = self._build_d1_C(self.F, pt_d1) # input:(b,2,8,8) output:(b,64,2)
         self.inv_delta_d1C = torch.tensor(self._build_inv_delta_d1_C(self.F, self.D1C), dtype=torch.float32).cuda()
         batch_T = torch.matmul(self.inv_delta_d1C, batch_C_prime_with_zeros)  # batch_size x F+3 x 2 # [b, 124, 124]*[b,124,2] = [b, 124, 2]
         # 与求逆后的大矩阵相乘，获得参数转移矩阵T
         
-        self.D1P = self._build_d1_P(self.I_r_width, self.I_r_height, pt_d1) #加密的点 (b, 39204, 2)
-        self.d1P_hat = torch.tensor(self._build_P_d1_hat(self.F, self.D1C, self.D1P), dtype=torch.float32).cuda()
-        batch_P_prime = torch.matmul(self.d1P_hat, batch_T)  # batch_size x n x 2  # [2,39204, 124]*[2, 124, 2]= [2, 39204, 2]
+        # self.D1P = self._build_d1_P(self.I_r_width, self.I_r_height, pt_d1) #加密的点 (b, 39204, 2)
+        self.D1P = trg_dense_pt #加密的点 (b, 160000, 2)
+        self.d1P_hat = torch.tensor(self._build_P_d1_hat(self.F, self.D1C, self.D1P), dtype=torch.float32).cuda() # out: [2,160000, 67]
+        batch_P_prime = torch.matmul(self.d1P_hat, batch_T)  # batch_size x n x 2  # [2,39204, 67]*[2, 67, 2]= [2, 39204, 2]
 
         # dense_pt_d1 = self.D1P
         return batch_P_prime # batch_size x n x 2  # [2, 39204, 2])

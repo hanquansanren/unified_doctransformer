@@ -74,7 +74,7 @@ def vis_single(img, url):
 
 def mask_calculator(lbl, single_line):
     '''
-    lbl:(b,2,31,31)
+    lbl:(b,2,8,8)
     single_line: 7
     '''
     batch_num = lbl.shape[0]
@@ -283,7 +283,7 @@ def train(args):
                 w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 '''vis for p1 and p2'''
-                if (global_step-1)%5==0:
+                if (global_step-1)%2==0:
                     w1_show = vis_single(w1, './intermedia_tps_vis/mark_origin_wild.png')
                     w1_p1 = vis_single(w_im_p1, './intermedia_tps_vis/mark_origin_p1.png')
                     w1_p2 = vis_single(w_im_p2, './intermedia_tps_vis/mark_origin_p2.png')
@@ -292,20 +292,22 @@ def train(args):
                 # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
                 triple_outputs = model(torch.cat((w_im_p1,w_im_p2,w1),dim=0)) # input:d1,d2,w1 # 6*128
                 triple_outputs = triple_outputs.reshape(-1,8,8,2)
-                triple_outputs = triple_outputs.permute(0,3,1,2)
+                triple_outputs = triple_outputs.permute(0,3,1,2) # [3b, 2, 8, 8]
                 # (3*b, 2, 8, 8) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
                 # outputs1, D1_pred: triple_outputs[0:args.batch_size]
                 # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
                 # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
                 
                 # tps loss part
+                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # out: [b, 3, 992, 992]
+                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
                 rectified_img3, ref_img3 = tps_for_loss(w1, \
                                         batch_ref=di, \
                                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
                 rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
-                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size])
+                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2)
                 rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
-                                        batch_trg_pt=triple_outputs[0:args.batch_size])
+                                        batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1)
                 
                 # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
                 
@@ -313,8 +315,7 @@ def train(args):
                 loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
                 # loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
                 # loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
-                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # input: (b,2,31,31)
-                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
+
                 loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
                 loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
                 # loss = loss3
@@ -323,7 +324,7 @@ def train(args):
                 # print(time.time()-t1,'second')
                 
                 '''vis for fourier dewarp'''
-                if (global_step-1)%5==0:
+                if (global_step-1)%2==0:
                     p1_pred_show = triple_outputs[0*args.batch_size:1*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
                     perturbed_img_mark1 = location_mark(w1_p1.copy(), p1_pred_show, (0, 0, 255))
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_p1.png', perturbed_img_mark1)
@@ -442,7 +443,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0001,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.001,
                         help='Learning Rate')
 
     parser.add_argument('--print-freq', '-p', default=2, type=int,
