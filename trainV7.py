@@ -1,7 +1,7 @@
 '''
 2022/10/16
 Weiguang Zhang
-V6 means pure FDRNet + 8*8 output
+V7 means changed FDRNet + 8*8 output
 '''
 import os, sys
 import argparse
@@ -26,7 +26,7 @@ from os.path import join as pjoin
 import utilsV4 as utils
 from utilsV4 import AverageMeter
 from dataset_lmdbV5 import my_unified_dataset
-from intermediate_dewarp_lossV6 import get_dewarped_intermediate_result
+from intermediate_dewarp_lossV7 import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
     '''
@@ -224,6 +224,7 @@ def train(args):
     loss_fun = loss_instance.loss_fn4_v5_r_4   # 调用其中一个loss function
     # loss_fun = loss_instance.loss_fn4_v5_r_3   # *
     loss_fun2 = loss_instance.loss_fn_l1_loss #普通的L1 loss，未被用到
+    loss_fun3 = loss_instance.loss_fn_cood_position_loss
     losses = AverageMeter() # 用于计数和计算平均loss
     
     loss_instance.lambda_loss = 1 # 主约束
@@ -283,7 +284,7 @@ def train(args):
                 w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 '''vis for p1 and p2'''
-                if (global_step-1)%2==0:
+                if (global_step-1)%6==0:
                     w1_show = vis_single(w1, './intermedia_tps_vis/mark_origin_wild.png')
                     w1_p1 = vis_single(w_im_p1, './intermedia_tps_vis/mark_origin_p1.png')
                     w1_p2 = vis_single(w_im_p2, './intermedia_tps_vis/mark_origin_p2.png')
@@ -299,15 +300,15 @@ def train(args):
                 # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
                 
                 # tps loss part
-                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # out: [b, 3, 992, 992]
-                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
+                # mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # out: [b, 3, 992, 992]
+                # mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
                 rectified_img3, ref_img3 = tps_for_loss(w1, \
                                         batch_ref=di, \
                                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
-                rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
-                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2)
-                rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
-                                        batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1)
+                rectified_img6 = tps_for_loss(w_im_p1, \
+                                        batch_src_pt = triple_outputs[0:args.batch_size])
+                rectified_img7 = tps_for_loss(w_im_p2, \
+                                        batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size])
                 
                 # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
                 
@@ -316,15 +317,16 @@ def train(args):
                 # loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
                 # loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
 
-                loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
-                loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
-                # loss = loss3
-                loss = loss3 + 0.5*(loss6 + loss7)
+                loss6 = loss_fun2(rectified_img6.to(args.device), rectified_img7.to(args.device))
+                # loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1)
+                loss4 = loss_fun3(triple_outputs)
+                # print(loss4)
+                loss = loss3 + 0.5*(loss6) + loss4
                 # loss = loss1 + (loss3 + loss4 + loss5)
                 # print(time.time()-t1,'second')
                 
                 '''vis for fourier dewarp'''
-                if (global_step-1)%2==0:
+                if (global_step-1)%6==0:
                     p1_pred_show = triple_outputs[0*args.batch_size:1*args.batch_size].detach().data.cpu().numpy().transpose(0, 2, 3, 1)[0] # (31,31,2)
                     perturbed_img_mark1 = location_mark(w1_p1.copy(), p1_pred_show, (0, 0, 255))
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_p1.png', perturbed_img_mark1)
@@ -336,11 +338,11 @@ def train(args):
                     cv2.imwrite('./intermedia_tps_vis/mark_pred_w1.png', perturbed_img_mark3)
 
                     vis_single(rectified_img6.to(args.device), './intermedia_tps_vis/mark_rectified_p1.png')
-                    vis_single(mask2*w_im_p2.to(args.device), './intermedia_tps_vis/mark_ref_target_p2.png')
-
+                    # vis_single(w_im_p2.to(args.device), './intermedia_tps_vis/mark_ref_target_p2.png')
                     vis_single(rectified_img7.to(args.device), './intermedia_tps_vis/mark_rectified_p2.png')
-                    vis_single(mask1*w_im_p1.to(args.device), './intermedia_tps_vis/mark_ref_target_p1.png')
-
+                    # vis_single(w_im_p1.to(args.device), './intermedia_tps_vis/mark_ref_target_p1.png')
+                    vis_single((rectified_img6-rectified_img7).to(args.device), './intermedia_tps_vis/mark_rectified_subtracted.png')
+                    
                     vis_single(rectified_img3.to(args.device), './intermedia_tps_vis/mark_rectified_w1.png')
                     vis_single(ref_img3.to(args.device), './intermedia_tps_vis/mark_ref_target_di.png')
 
@@ -357,14 +359,14 @@ def train(args):
                 loss_l1_list +=    0
                 loss_local_list += 0
                 loss3_list += (loss3.item()*1)
-                # loss4_list += (loss4.item()*1)
+                loss4_list += (loss4.item()*1)
                 # loss5_list += (loss5.item()*1)
-                loss4_list += 0
+                # loss4_list += 0
                 loss5_list += 0
                 # loss6_list += 0
-                # loss7_list += 0
                 loss6_list += (loss6.item()*0.5)
-                loss7_list += (loss7.item()*0.5)
+                loss7_list += 0
+                # loss7_list += (loss7.item()*0.5)
                 
                 if (global_step-1)%30==0:
                     # show_wc_tnsboard(global_step, writer, images[4*args.batch_size:5*args.batch_size], labels[:args.batch_size], triple_outputs[0:args.batch_size], 8,'Train d1 pts', 'no', 'no')
@@ -485,7 +487,7 @@ if __name__ == '__main__':
     # big 
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 5
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-20/2022-10-20 13:16:26 @2022-10-19/12/2022-10-19@2022-10-20 13:16:26DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-22/2022-10-22 15:45:12 @2022-10-22/4/2022-10-22@2022-10-22 15:45:12DDCP.pkl')
     
     parser.add_argument('--parallel', default='023', type=list,
                         help='choice the gpu id for parallel ')

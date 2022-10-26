@@ -1,7 +1,7 @@
 '''
 2022/10/12
 Weiguang Zhang
-V6 means pure FDRNet + 8*8 output
+V7 means changed FDRNet FDRNet + 8*8 output
 '''
 from ast import Not
 from queue import Empty
@@ -32,7 +32,7 @@ class get_dewarped_intermediate_result(nn.Module):
         super(get_dewarped_intermediate_result, self).__init__()
         self.f_row_num, self.f_col_num = pt_num # (8, 8)
         self.F = self.f_row_num * self.f_col_num # 64 总控制点数量
-        self.output_size = list(map(int, output_size)) # (h, w)(400,400)
+        self.output_size = list(map(int, output_size)) # (h, w)(200,200)
         self.device = device
         # self.lowpart, self.hpf = self.fdr()
         self.estimateTransformation = estimateTransformation(self.F, self.output_size)
@@ -166,7 +166,7 @@ class get_dewarped_intermediate_result(nn.Module):
         trg_mask: [b,3,992,992] 需要加密的target点集
         '''
         
-        if batch_trg_pt is None:
+        if batch_ref is not None:
             self.lowpart, self.hpf = self.fdr()
             # 完成shrunken h*w形式的 backward mapping构建
             batch_num = batch_src_pt.shape[0]
@@ -194,7 +194,7 @@ class get_dewarped_intermediate_result(nn.Module):
             batch_I_r = F.grid_sample(batch_I_ffted, map, padding_mode='border', align_corners=True) # [b, 3, 992, 992], requires_grad=True
             return batch_I_r, batch_ref_ffted # output: [b, 3, h, w]
         # 完成shrunken h*w形式的 backward mapping构建
-        elif batch_trg_pt is not None:
+        elif batch_ref is None:
             # source pts normalized to range within [-1, 1] 
             batch_num = batch_src_pt.shape[0]
             # batch_src_pt = batch_src_pt[:,:,::3,::3] / 992 # [b, 2, 8, 8] -> [b, 2, 8, 8]
@@ -202,109 +202,12 @@ class get_dewarped_intermediate_result(nn.Module):
             batch_src_pt = batch_src_pt.permute(0,3,2,1).reshape(batch_num,-1,2) # [b, 2, 8, 8] ->  [b, 8, 8, 2] -> [b, 64, 2] 
             batch_src_pt = (batch_src_pt[:]-0.5)*2 # [b, 64, 2]
             
-            # mask downsampling: [b, 3, 992, 992] -> [b, 3, 400, 400] 
-            trg_mask = trg_mask[:,0:1,:,:].float() # [b, 3, 992, 992] -> [b, 1, 992, 992] 
-            trg_mask = F.interpolate(trg_mask, [200,200],  mode='bilinear', align_corners=True) # [b, 1, 992, 992] -> [b, 1, 400, 400] 
-            trg_mask = trg_mask.cpu().numpy() # (b, 1, 400, 400)
+
+            build_P_prime = self.estimateTransformation.build_P_prime(batch_src_pt)
+            build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
+            # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
             
-            # mask to coodinate
-            batch_coodinate = np.zeros((batch_num, 40000, 2))
-            for b in range(batch_num):
-                c_short = np.argwhere(trg_mask[b,0,...]>0)
-                c_short = np.pad(c_short, (0,40000-len(c_short)), 'constant', constant_values=-100)[:,0:2]
-                batch_coodinate[b] = c_short
-
-            build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt, batch_trg_pt, batch_coodinate)
-            # out: (b, 160000, 2)，可能在尾部包含大量冗余，需要结合batch_coodinate(batch_num, 160000, 2)进行剔除
-            BM = torch.full((batch_num, 200, 200, 2), float('nan')).cuda().float() 
-            # BM = torch.full((batch_num, 200, 200, 2), 0.).cuda().float()
-            
-
-            # fill in small bm from dense local pt bm
-            for b in range(batch_num):
-                redundant_c = np.argwhere(batch_coodinate[b] <= -99)
-                # print(len(batch_coodinate[b]))
-                # print(redundant_c.size)
-                if redundant_c.size != 0:
-                    # print(np.argwhere(batch_coodinate[b] <= -99)[0][0])
-                    for jj in range(np.argwhere(batch_coodinate[b] <= -99)[0][0]):
-                        BM[b,np.int(batch_coodinate[b,jj,1]), np.int(batch_coodinate[b,jj,0]),:] = build_P_prime[b,jj,:]
-                else:
-                    # t2 = time.time()
-                    for l in range(200*200):
-                        # print(build_P_prime[b,l,:])
-                        # print(BM[b,batch_coodinate[b,l,1], batch_coodinate[b,l,0],:])
-                        BM[b,np.int(batch_coodinate[b,l,1]), np.int(batch_coodinate[b,l,0]),:] = build_P_prime[b,l,:]
-                    # print(time.time() - t2) 
-
-
-            # # mask to dense coordinate
-            # X = torch.linspace(0, 399, steps=400) 
-            # Y = torch.linspace(0, 399, steps=400)
-            # X, Y = torch.meshgrid(X, Y, indexing='xy')
-            # standard_pts = torch.stack((X, Y), dim=0).repeat(batch_num,1,1,1).cuda()  # [b, 2, 400, 400]
-            # selected_standard_pts = (trg_mask * standard_pts) #.reshape(160000,2)
-            
-            # trg_mask_pt = torch.empty((batch_num, 160000, 2)).cuda() # [b,N,2]
-
-
-            # print("OK")
-            # for b in range(batch_num):
-            #     for (i,j) in zip(selected_standard_pts[b,0,:,:], selected_standard_pts[b,1,:,:]):
-            #         i[(1 < x) & (x < 5)]
-            #         for (x, y) in zip(i,j):
-            #             if x==0 and y==0:
-            #                 continue
-            #             else:
-            #                 trg_mask_pt = torch.vstack((trg_mask_pt, torch.stack((x, y)).unsqueeze(0)))
-            #     # input: 
-            #     # batch_src_pt：[4, 64, 2] 
-            #     # batch_trg_pt：[4, 2, 8, 8]
-            #     # trg_mask_pt：[N,2]
-            #     build_P_prime = self.estimateTransformation.build_P_prime_for_d1(batch_src_pt[b], batch_trg_pt[b], trg_mask_pt[1:,:])          
-            #     # out: build_P_prime (160000,2)
- 
-
-
-
-            # 局部采样
-            # # build_P_prime: (b,980000,2)
-            # # dense_pt_d1: (b,980000,2)
-            # # build_P_prime_reshape = build_P_prime.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
-            # # # output: [b, shrunken h, shrunken w, 2] [b, 198, 198, 2]
-            # # BM = torch.zeros((batch_num, 992, 992, 2)).cuda().float()
-            # BM = torch.full((batch_num, 150, 150, 2), float('nan')).cuda().float()
-            # dense_pt_d1 = ((dense_pt_d1/2+0.5)*150).astype(int) # (b,980000,2)
-            # dense_pt_d1 = np.clip(dense_pt_d1, 0, 149)
-            # # print(np.max(dense_pt_d1))
-            # # BM = torch.full((batch_num, 992, 992, 2), float('nan')).cuda().float()            
-            # # dense_pt_d1 = ((dense_pt_d1/2+0.5)*992).astype(int) # (b,980000,2)
-            # # dense_pt_d1 = np.clip(dense_pt_d1, 0, 991)
-            
-            # for batch in range(batch_num):
-            #     for l in range(198*198):
-            #         BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
-
-        
-            # # BM[:,dense_pt_d1[:,:,1],dense_pt_d1[:,:,0],:] = build_P_prime[:,:,:]
-            
-            # # for batch in range(batch_num):
-            # #     for l in range(992*992):
-            # #         BM[batch,dense_pt_d1[batch,l,1],dense_pt_d1[batch,l,0],:] = build_P_prime[batch,l,:]
-            
-            # # 获得BM (b, 198, 198, 2)
-            # BM = BM.transpose(2, 3).transpose(1, 2) # (b, 198, 198, 2) -> (b, 2, 198, 198)
-            # BM = F.interpolate(BM, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 198, 198]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
-            # BM = BM.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
-            
-            # batch_I_r = F.grid_sample(batch_I, BM, padding_mode='zeros', align_corners=True) # [b, 3, 992, 992], requires_grad=True
-            # batch_I_r = batch_I_r.nan_to_num() # 默认将nan转成0
-            # return batch_I_r # output: [b, 3, h, w]   
-
-            # resize small bm to big bm
-            # build_P_prime_reshape = BM.reshape([build_P_prime.size(0), self.output_size[0], self.output_size[1], 2])  # build_P_prime.size(0) == mini-batch size,
-            # # output: [b, shrunken h, shrunken w, 2]=[b, 400, 400, 2]
-            build_P_prime_reshape = BM.transpose(2, 3).transpose(1, 2) # [b, 400, 400, 2]-->[b, 2, 400, 400]
+            build_P_prime_reshape = build_P_prime_reshape.transpose(2, 3).transpose(1, 2) # [b, 400, 400, 2]-->[b, 2, 400, 400]
             map = F.interpolate(build_P_prime_reshape, output_shape,  mode='bilinear', align_corners=True) # [b, 2, 400, 400]-->[b, 2, 992, 992] # 这里的插值函数仅支持NCHW的形式，故而需要手动转换
             map = map.transpose(1, 2).transpose(2, 3) # [b, 2, 992, 992]-->[b, 992, 992, 2] 至此，获得了backward mapping, requires_grad=True
             batch_I_r = F.grid_sample(batch_I, map, padding_mode='border', align_corners=True) # [b, 3, 992, 992], requires_grad=True
@@ -523,6 +426,9 @@ class estimateTransformation(nn.Module):
 
     # 主函数，构造backward mapping
     def build_P_prime(self, batch_C_prime):
+        '''
+        batch_C_prime: [b, 64, 2] 归一化的source pred
+        '''
         batch_size = batch_C_prime.size(0) # batch_C_prime= (1,64,2),是warped图像上的控制点位置（已归一化到(-1,1)）
         batch_C_prime_with_zeros = torch.cat((batch_C_prime, torch.zeros(batch_size, 3, 2).float().cuda()), dim=1)  # batch_size x F+3 x 2 
         # 实现 (1,64,2)+(1,3,2) in dim1= (1,67,2)，获得真实图像上的控制点

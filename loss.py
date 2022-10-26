@@ -33,6 +33,13 @@ class Losses(object):
                                     [[[0, 1., 0],
                                       [1., 1., 1.],
                                       [0, 1., 0]]]]).cuda()
+        self.keep_position = torch.tensor([[[[1, 1, 1],
+                                            [0, 0, 0],
+                                            [-1, -1, -1]]],
+                                            [[[1, 0, -1],
+                                            [1., 0, -1],
+                                            [1, 0, -1]]],]).cuda()
+
         # self.kernel = torch.ones(2, 1, 3, 3).cuda(self.args_gpu)
         self.kernel_2_1 = torch.tensor([[[[1.], [-1.]]], [[[1.], [-1.]]]]).cuda()
         self.kernel_1_2 = torch.tensor([[[[1., -1.]]], [[[1., -1.]]]]).cuda()
@@ -135,6 +142,16 @@ class Losses(object):
 
         return loss_l1, loss_local, 0, 0
         # return loss_l1, loss_local, loss_edge, loss_rectangle
+
+    def loss_fn_cood_position_loss(self, input):
+        '''
+        input : (3*b,2,8,8)
+        '''
+        print(input[0])
+        # print(torch.maximum(F.conv2d(F.pad(input, (1, 1, 1, 1), mode='replicate'), self.keep_position, padding=0, groups=2),torch.zeros((30,2,8,8)).cuda()))
+        loss_position = torch.mean(100*torch.maximum(F.conv2d(F.pad(input, (1, 1, 1, 1), mode='replicate'), self.keep_position, padding=0, groups=2),torch.zeros((30,2,8,8)).cuda()))
+        
+        return loss_position
 
     def loss_fn_l1_loss(self, input, target, mask=None, reduction='mean'):
         '''three'''

@@ -1,7 +1,7 @@
 '''
 2022/10/16
 Weiguang Zhang
-V6 means pure FDRNet + 8*8 output
+Vsecond_1 DDCP+loss refinement
 '''
 import os, sys
 import argparse

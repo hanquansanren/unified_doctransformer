@@ -1,7 +1,7 @@
 '''
 2022/10/16
 Weiguang Zhang
-V6 means pure FDRNet + 8*8 output
+V8 means pure FDRNet++ + 8*8 output
 '''
 import os, sys
 import argparse
@@ -26,7 +26,7 @@ from os.path import join as pjoin
 import utilsV4 as utils
 from utilsV4 import AverageMeter
 from dataset_lmdbV5 import my_unified_dataset
-from intermediate_dewarp_lossV6 import get_dewarped_intermediate_result
+from intermediate_dewarp_lossV8 import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
     '''
@@ -305,9 +305,9 @@ def train(args):
                                         batch_ref=di, \
                                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
                 rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
-                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2)
+                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2.float())
                 rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
-                                        batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1)
+                                        batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
                 
                 # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
                 
@@ -485,7 +485,7 @@ if __name__ == '__main__':
     # big 
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 5
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-20/2022-10-20 13:16:26 @2022-10-19/12/2022-10-19@2022-10-20 13:16:26DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-20/2022-10-20 13:16:26 @2022-10-19/6/2022-10-19@2022-10-20 13:16:26DDCP.pkl')
     
     parser.add_argument('--parallel', default='023', type=list,
                         help='choice the gpu id for parallel ')
