@@ -87,7 +87,7 @@ class get_dewarped_intermediate_result(nn.Module):
         perturbed_wi_list=[]
         for num in range(2):
             tt = t.clone()
-            nd = random.randint(0, 40) # 4
+            nd = random.randint(0, 4) # 4 40
             for ii in range(nd): # 控制点数量
                 # define deformation on bd
                 pm = (torch.rand(B, 1) - 0.5) * 0.2  # 从区间【-0.1,0.1】均匀采样四个点
@@ -133,7 +133,7 @@ class get_dewarped_intermediate_result(nn.Module):
                 tgs = self.tpswarper(srcpts, dstpts)
                 tt = F.grid_sample(tt, tgs.permute(0, 2, 3, 1), align_corners=True)
 
-            nd = random.randint(1, 40) # 5
+            nd = random.randint(1, 5) # 5 40
             for ii in range(nd):
 
                 pm = (torch.rand(B, 2) - 0.5) * 0.2

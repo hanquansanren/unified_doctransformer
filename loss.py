@@ -147,7 +147,7 @@ class Losses(object):
         '''
         input : (3*b,2,8,8)
         '''
-        print(input[0])
+        # print(input[0])
         # print(torch.maximum(F.conv2d(F.pad(input, (1, 1, 1, 1), mode='replicate'), self.keep_position, padding=0, groups=2),torch.zeros((30,2,8,8)).cuda()))
         loss_position = torch.mean(100*torch.maximum(F.conv2d(F.pad(input, (1, 1, 1, 1), mode='replicate'), self.keep_position, padding=0, groups=2),torch.zeros((30,2,8,8)).cuda()))
         

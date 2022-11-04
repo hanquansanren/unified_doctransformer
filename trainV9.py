@@ -1,7 +1,7 @@
 '''
 2022/10/16
 Weiguang Zhang
-V8 means pure FDRNet++ + 8*8 output
+V9 means final polar-doc
 '''
 import os, sys
 import argparse
@@ -25,7 +25,7 @@ import torchvision
 from os.path import join as pjoin
 import utilsV4 as utils
 from utilsV4 import AverageMeter
-from dataset_lmdbV5 import my_unified_dataset
+from dataset_lmdbV9 import my_unified_dataset
 from intermediate_dewarp_lossV8 import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
@@ -262,14 +262,16 @@ def train(args):
                 trainloader_list[0][1].set_epoch(epoch)
                 print("shuffle successfully")
             model.train()
-            for i, (w1,di) in enumerate(trainloader_list[epoch%1][0]):
+            for i, (d1, lbl1, d2, lbl2) in enumerate(trainloader_list[epoch%1][0]):
                 # images: [b, 3*2, 992, 992] = w1+di
                 # images = torch.cat((images[:,0:3,:,:],images[:,3:6,:,:]),dim=0)
                 # # images: [2*b, 3, 992, 992] = w1+di
                 # # w1: images[0*args.batch_size:1*args.batch_size]
                 # # di: images[1*args.batch_size:2*args.batch_size]           
-                w1 = w1.cuda()
-                di = di.cuda()
+                d1 = d1.cuda()
+                d2 = d2.cuda()
+                lbl1 = lbl1.cuda()
+                lbl2 = lbl2.cuda()
 
                 # labels = labels.cuda()
                 # images = images.cuda()
@@ -281,13 +283,13 @@ def train(args):
                 # perturbed_wi_list: 2 elements, each element is [6, 2, 11, 11]
                 # w_im_p1 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
                 # w_im_p2 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                '''vis for p1 and p2'''
-                if (global_step-1)%2==0:
-                    w1_show = vis_single(w1, './intermedia_tps_vis/mark_origin_wild.png')
-                    w1_p1 = vis_single(w_im_p1, './intermedia_tps_vis/mark_origin_p1.png')
-                    w1_p2 = vis_single(w_im_p2, './intermedia_tps_vis/mark_origin_p2.png')
+                # w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
+                # w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
+                # '''vis for p1 and p2'''
+                # if (global_step-1)%2==0:
+                #     w1_show = vis_single(w1, './intermedia_tps_vis/mark_origin_wild.png')
+                #     w1_p1 = vis_single(w_im_p1, './intermedia_tps_vis/mark_origin_p1.png')
+                #     w1_p2 = vis_single(w_im_p2, './intermedia_tps_vis/mark_origin_p2.png')
 
                 # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
                 # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
@@ -300,30 +302,31 @@ def train(args):
                 # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
                 
                 # tps loss part
-                mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # out: [b, 3, 992, 992]
-                mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
-                rectified_img3, ref_img3 = tps_for_loss(w1, \
-                                        batch_ref=di, \
-                                        batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
-                rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
-                                        batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2.float())
-                rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
-                                        batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
+                # mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # out: [b, 3, 992, 992]
+                # mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
+                # rectified_img3, ref_img3 = tps_for_loss(w1, \
+                #                         batch_ref=di, \
+                #                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
+                # rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
+                #                         batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2.float())
+                # rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
+                #                         batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
                 
-                # loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
+                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs[0:2*args.batch_size], labels)
                 
-                # loss1 = loss1_l1*3 + (loss1_local)*loss_instance.lambda_loss_a
-                loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
-                # loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
-                # loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
-                loss4 = loss_fun3(triple_outputs)
-                # loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
-                # loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
-                loss6 = loss_fun2(mask2*rectified_img6.to(args.device), mask2*w_im_p2.to(args.device))
-                loss7 = loss_fun2(mask1*rectified_img7.to(args.device), mask1*w_im_p1.to(args.device))
+                loss1 = loss1_l1*3 + (loss1_local)*loss_instance.lambda_loss_a
+                # loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
+                # # loss4 = loss_fun2(images[4*args.batch_size:5*args.batch_size]*rectified_img4.to(args.device), images[4*args.batch_size:5*args.batch_size]*ref_img4.to(args.device))
+                # # loss5 = loss_fun2(images[5*args.batch_size:6*args.batch_size]*rectified_img5.to(args.device), images[5*args.batch_size:6*args.batch_size]*ref_img5.to(args.device))
+                # loss4 = loss_fun3(triple_outputs)
+                # # loss6 = loss_fun2(rectified_img6.to(args.device), w_im_p2, mask2)
+                # # loss7 = loss_fun2(rectified_img7.to(args.device), w_im_p1, mask1)
+                # loss6 = loss_fun2(mask2*rectified_img6.to(args.device), mask2*w_im_p2.to(args.device))
+                # loss7 = loss_fun2(mask1*rectified_img7.to(args.device), mask1*w_im_p1.to(args.device))
                 # loss = loss3
-                loss = loss3 + 0.5*(loss6 + loss7) + loss4
+                # loss = loss3 + 0.5*(loss6 + loss7) + loss4
                 # loss = loss1 + (loss3 + loss4 + loss5)
+                loss = loss1
                 # print(time.time()-t1,'second')
                 
                 '''vis for fourier dewarp'''
@@ -460,7 +463,7 @@ if __name__ == '__main__':
                         help='the path of train images.')  # train image path
 
     # './dataset_for_debug'  './dataset'  './dataset_fast_train' './dataset/biglmdb' './dataset/onelmdb/'
-    parser.add_argument('--data_path_total', default='./dataset/onelmdb/', type=str,
+    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -492,7 +495,7 @@ if __name__ == '__main__':
     # 5
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-26/2022-10-26 22:44:32 @2022-10-26/49/2022-10-26@2022-10-26 22:44:32DDCP.pkl')
     
-    parser.add_argument('--parallel', default='023', type=list,
+    parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         
     args = parser.parse_args()
