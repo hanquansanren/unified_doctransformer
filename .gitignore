@@ -20,3 +20,4 @@ accuracy_log
 output/
 backup/
 validation_vis/
+intermedia_result/

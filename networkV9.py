@@ -257,7 +257,7 @@ class DilatedResnet(nn.Module):
 			# feature size: 31*31
 		)
 		
-		self.last_layer =nn.Conv2d(2, 2, kernel_size=1, stride=1, padding=0)
+		# self.last_layer =nn.Conv2d(2, 2, kernel_size=1, stride=1, padding=0)
 		# (b,2,961,1) -> (b,2,961,1)
 		# self.last_layer = nn.Linear(961*2, 961*2)
 

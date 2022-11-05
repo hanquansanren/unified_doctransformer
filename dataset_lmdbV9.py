@@ -88,8 +88,8 @@ class my_unified_dataset(data.Dataset):
 			lbl1 = self.resize_lbl(lbl1,d1)
 			lbl2 = self.resize_lbl(lbl2,d2)
 
-			mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3), (240, 2)
-			mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3), (240, 2)
+			# mask1, pts1 = self.mask_calculator(lbl1) # input:(61,61,2) output:(992,992,3), (240, 2)
+			# mask2, pts2 = self.mask_calculator(lbl2) # input:(61,61,2) output:(992,992,3), (240, 2)
 			lbl1 = self.fiducal_points_lbl(lbl1)
 			lbl2 = self.fiducal_points_lbl(lbl2)
 

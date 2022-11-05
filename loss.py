@@ -26,7 +26,7 @@ class Losses(object):
                                    [0, 0, 0, 0, 1., 0, 0, 0, 0],
                                    [0, 0, 0, 0, 1., 0, 0, 0, 0],
                                    [0, 0, 0, 0, 1., 0, 0, 0, 0],
-                                   [0, 0, 0, 0, 1., 0, 0, 0, 0]]]],dtype=torch.float64).cuda()
+                                   [0, 0, 0, 0, 1., 0, 0, 0, 0]]]],dtype=torch.float32).cuda()
         self.kernel = torch.tensor([[[[0, 1., 0],
                                       [1., 1., 1.],
                                       [0, 1., 0]]],
@@ -58,51 +58,6 @@ class Losses(object):
         self.fourier_loss_b = 1
         self.fourier_loss_c = 1
 
-    def line_cross(self, input, target, size_average=False):
-
-        input_rectangles_h = F.conv2d(input, self.kernel_1_2, padding=0, groups=2)
-        target_rectangles_h = F.conv2d(target, self.kernel_1_2, padding=0, groups=2)
-        input_arget_rectangles_h = F.mse_loss(input_rectangles_h, target_rectangles_h, size_average=size_average)
-        input_rectangles_o = F.conv2d(input, self.kernel_2_1, padding=0, groups=2)
-        target_rectangles_o = F.conv2d(target, self.kernel_2_1, padding=0, groups=2)
-        input_arget_rectangles_o = F.mse_loss(input_rectangles_o, target_rectangles_o, size_average=size_average)
-        loss_rectangles = input_arget_rectangles_h + input_arget_rectangles_o
-
-        return loss_rectangles
-
-    def loss_line_cross(self, input, target, size_average=False):
-        i_t = target - input
-
-        loss_local = torch.mean(torch.pow(F.conv2d(F.pad(i_t, (1, 1, 1, 1), mode='replicate'), self.kernel, padding=0, groups=2) - i_t*5, 2))
-        # loss_local = torch.mean(torch.abs(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5))
-        # loss_local = torch.mean(torch.pow(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5, 2))
-
-        input_rectangles_h = F.conv2d(input, self.kernel_1_2, padding=0, groups=2)
-        target_rectangles_h = F.conv2d(target, self.kernel_1_2, padding=0, groups=2)
-        input_arget_rectangles_h = F.mse_loss(input_rectangles_h, target_rectangles_h, size_average=size_average)
-        input_rectangles_o = F.conv2d(input, self.kernel_2_1, padding=0, groups=2)
-        target_rectangles_o = F.conv2d(target, self.kernel_2_1, padding=0, groups=2)
-        input_arget_rectangles_o = F.mse_loss(input_rectangles_o, target_rectangles_o, size_average=size_average)
-        loss_rectangles = input_arget_rectangles_h + input_arget_rectangles_o
-
-        return loss_local, loss_rectangles
-
-    def loss_line_cross_l1(self, input, target, size_average=False):
-        i_t = target - input
-
-        loss_local = torch.mean(torch.abs(F.conv2d(F.pad(i_t, (1, 1, 1, 1), mode='replicate'), self.kernel, padding=0, groups=2) - i_t*5))
-        # loss_local = torch.mean(torch.abs(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5))
-        # loss_local = torch.mean(torch.pow(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5, 2))
-
-        input_rectangles_h = F.conv2d(input, self.kernel_1_2, padding=0, groups=2)
-        target_rectangles_h = F.conv2d(target, self.kernel_1_2, padding=0, groups=2)
-        input_arget_rectangles_h = F.l1_loss(input_rectangles_h, target_rectangles_h, size_average=size_average)
-        input_rectangles_o = F.conv2d(input, self.kernel_2_1, padding=0, groups=2)
-        target_rectangles_o = F.conv2d(target, self.kernel_2_1, padding=0, groups=2)
-        input_arget_rectangles_o = F.l1_loss(input_rectangles_o, target_rectangles_o, size_average=size_average)
-        loss_rectangles = input_arget_rectangles_h + input_arget_rectangles_o
-
-        return loss_local, loss_rectangles
 
 
     # def loss_fn4_v5(self, input, target, size_average=False):
@@ -162,3 +117,64 @@ class Losses(object):
         else:
             print('error mask')        
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def line_cross(self, input, target, size_average=False):
+
+        input_rectangles_h = F.conv2d(input, self.kernel_1_2, padding=0, groups=2)
+        target_rectangles_h = F.conv2d(target, self.kernel_1_2, padding=0, groups=2)
+        input_arget_rectangles_h = F.mse_loss(input_rectangles_h, target_rectangles_h, size_average=size_average)
+        input_rectangles_o = F.conv2d(input, self.kernel_2_1, padding=0, groups=2)
+        target_rectangles_o = F.conv2d(target, self.kernel_2_1, padding=0, groups=2)
+        input_arget_rectangles_o = F.mse_loss(input_rectangles_o, target_rectangles_o, size_average=size_average)
+        loss_rectangles = input_arget_rectangles_h + input_arget_rectangles_o
+
+        return loss_rectangles
+
+    def loss_line_cross(self, input, target, size_average=False):
+        i_t = target - input
+
+        loss_local = torch.mean(torch.pow(F.conv2d(F.pad(i_t, (1, 1, 1, 1), mode='replicate'), self.kernel, padding=0, groups=2) - i_t*5, 2))
+        # loss_local = torch.mean(torch.abs(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5))
+        # loss_local = torch.mean(torch.pow(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5, 2))
+
+        input_rectangles_h = F.conv2d(input, self.kernel_1_2, padding=0, groups=2)
+        target_rectangles_h = F.conv2d(target, self.kernel_1_2, padding=0, groups=2)
+        input_arget_rectangles_h = F.mse_loss(input_rectangles_h, target_rectangles_h, size_average=size_average)
+        input_rectangles_o = F.conv2d(input, self.kernel_2_1, padding=0, groups=2)
+        target_rectangles_o = F.conv2d(target, self.kernel_2_1, padding=0, groups=2)
+        input_arget_rectangles_o = F.mse_loss(input_rectangles_o, target_rectangles_o, size_average=size_average)
+        loss_rectangles = input_arget_rectangles_h + input_arget_rectangles_o
+
+        return loss_local, loss_rectangles
+
+    def loss_line_cross_l1(self, input, target, size_average=False):
+        i_t = target - input
+
+        loss_local = torch.mean(torch.abs(F.conv2d(F.pad(i_t, (1, 1, 1, 1), mode='replicate'), self.kernel, padding=0, groups=2) - i_t*5))
+        # loss_local = torch.mean(torch.abs(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5))
+        # loss_local = torch.mean(torch.pow(F.conv2d(i_t, self.kernel, padding=1, groups=2) - i_t*5, 2))
+
+        input_rectangles_h = F.conv2d(input, self.kernel_1_2, padding=0, groups=2)
+        target_rectangles_h = F.conv2d(target, self.kernel_1_2, padding=0, groups=2)
+        input_arget_rectangles_h = F.l1_loss(input_rectangles_h, target_rectangles_h, size_average=size_average)
+        input_rectangles_o = F.conv2d(input, self.kernel_2_1, padding=0, groups=2)
+        target_rectangles_o = F.conv2d(target, self.kernel_2_1, padding=0, groups=2)
+        input_arget_rectangles_o = F.l1_loss(input_rectangles_o, target_rectangles_o, size_average=size_average)
+        loss_rectangles = input_arget_rectangles_h + input_arget_rectangles_o
+
+        return loss_local, loss_rectangles
