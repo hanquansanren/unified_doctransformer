@@ -104,22 +104,43 @@ class Losses(object):
         single_line: 30
         '''
         batch_num = lbl.shape[0]
-        
-        # mask = torch.zeros((batch_num,992,992,3),dtype=bool)
-        pt_edge_batch = torch.zeros((batch_num,15,4*single_line))
+        pt_edge_batch = torch.zeros((batch_num,15,4*single_line), requires_grad=True).cuda()
         for batch in range(batch_num):
             for c in range(15): # c is contour
                 pt_edge_batch[batch,c,0:(single_line-2*c+1)] = lbl[batch,c,c:(single_line+1)-c]
                 for num in range(1,single_line-2*c,1):
                     pt_edge_batch[batch,c,single_line-2*c+num]= lbl[batch,num+c,single_line-c]
                 
-                pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c][:,::-1]
+                # a = lbl[batch,single_line-c,c:single_line+1-c]
+                pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c]
                 for num in range((single_line-1-2*c),0,-1):
                     pt_edge_batch[batch,c,(3*(single_line-2*c)+num)]= lbl[batch,(single_line-num-c),c]
 
-                # img = torch.zeros((992, 992, 3), dtype=torch.int32)
-                pts = pt_edge_batch.int()
-        return pts # (b,15,120)
+
+        # pts = pt_edge_batch.int()
+        return pt_edge_batch # (b,15,120)
+
+    def mask_calculator_l(self, lbl, single_line):
+        '''
+        lbl:(b,31,31)
+        single_line: 30
+        '''
+        batch_num = lbl.shape[0]
+        pt_edge_batch = torch.zeros((batch_num,15,4*single_line)).cuda()
+        for batch in range(batch_num):
+            for c in range(15): # c is contour
+                pt_edge_batch[batch,c,0:(single_line-2*c+1)] = lbl[batch,c,c:(single_line+1)-c]
+                for num in range(1,single_line-2*c,1):
+                    pt_edge_batch[batch,c,single_line-2*c+num]= lbl[batch,num+c,single_line-c]
+                
+                # a = lbl[batch,single_line-c,c:single_line+1-c]
+                pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c]
+                for num in range((single_line-1-2*c),0,-1):
+                    pt_edge_batch[batch,c,(3*(single_line-2*c)+num)]= lbl[batch,(single_line-num-c),c]
+
+
+                # pts = pt_edge_batch.int()
+        return pt_edge_batch # (b,15,120)
 
 
     def centerness_loss(self, input, target, reduction='mean'):
@@ -127,18 +148,27 @@ class Losses(object):
         input  : (2b,2,31,31)
         target : (2b,2,31,31)
         '''
+        batch=input.shape[0]
         label_center = target[:,:,15,15].unsqueeze(-1).unsqueeze(-1).repeat(1,1,31,31)
         # print(label_center.shape)
         pred_dist = torch.sqrt(torch.sum((input - label_center)**2, dim= 1))  # [20, 31, 31]
         label_dist = torch.sqrt(torch.sum((target - label_center)**2, dim= 1)) # [20, 31, 31] 
-        new_label_dist = self.mask_calculator(label_dist, 30) # (2b,15,120)
+        new_label_dist = self.mask_calculator_l(label_dist, 30) # (2b,15,120)
         new_pred_dist = self.mask_calculator(pred_dist, 30) # (2b,15,120)
-        centerness_targets = ( new_label_dist.min(dim=-1).mean(dim=-1) / new_label_dist.max(dim=-1).mean(dim=-1) ) # (2b)
-        centerness_targets = torch.sqrt(centerness_targets)
-        centerness_pred = ( new_pred_dist.min(dim=-1).mean(dim=-1) / new_pred_dist.max(dim=-1).mean(dim=-1) )
-        centerness_pred = torch.sqrt(centerness_pred)
-        
-        loss = F.binary_cross_entropy_with_logits(centerness_pred,centerness_targets, reduction=reduction)
+        centerness_targets = torch.zeros((batch,15)).cuda()
+        centerness_pred = torch.zeros((batch,15), requires_grad=True).cuda() 
+        for b in range(batch):
+            for c in range(15):
+                centerness_targets[b,c] = torch.sqrt(new_label_dist[b,c,0:120-c*8].min()/new_label_dist[b,c,0:120-c*8].max())
+                centerness_pred[b,c] = torch.sqrt(new_pred_dist[b,c,0:120-c*8].min()/new_pred_dist[b,c,0:120-c*8].max())
+                
+        # centerness_targets = ( new_label_dist.min(dim=-1) / new_label_dist.max(dim=-1) ).mean(dim=-1) # (2b)
+        # centerness_targets = torch.sqrt(centerness_targets)
+        # centerness_pred = ( new_pred_dist.mean(dim=-1) / new_pred_dist.max(dim=-1).mean(dim=-1) )
+        # centerness_pred = torch.sqrt(centerness_pred)
+        # loss1 = F.binary_cross_entropy_with_logits(centerness_targets,centerness_targets, reduction=reduction)
+        # print(loss1)
+        loss = F.binary_cross_entropy_with_logits(centerness_targets,centerness_pred, reduction=reduction)
 
         return loss
 

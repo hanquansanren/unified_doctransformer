@@ -86,22 +86,22 @@ class estimateTransformation(nn.Module):
         np.fill_diagonal(hat_C, 1) # 因为主对角线为全0，无法求径向基函数，因此需要用1填充
         hat_C = (hat_C ** 2) * np.log(hat_C ** 2) 
         # 20220903完善，增加了行序优先和列序优先的选项
-        # delta_C = np.concatenate( # 行序优先版
-        #     [
-        #         np.concatenate([np.ones((F, 1)), C, hat_C], axis=1),  # F x F+3
-        #         np.concatenate([np.zeros((1, 3)), np.ones((1, F))], axis=1),  # 1 x F+3
-        #         np.concatenate([np.zeros((2, 3)), np.transpose(C)], axis=1),  # 2 x F+3
-        #     ],
-        #     axis=0
-        # )
-        delta_C = np.concatenate( # 列序优先版
+        delta_C = np.concatenate( # 行序优先版
             [
-                np.concatenate([hat_C, np.ones((F, 1)), C], axis=1),  # F x F+3
-                np.concatenate([np.ones((1, F)), np.zeros((1, 3))], axis=1),  # 1 x F+3
-                np.concatenate([np.transpose(C), np.zeros((2, 3))], axis=1),  # 2 x F+3
+                np.concatenate([np.ones((F, 1)), C, hat_C], axis=1),  # F x F+3
+                np.concatenate([np.zeros((1, 3)), np.ones((1, F))], axis=1),  # 1 x F+3
+                np.concatenate([np.zeros((2, 3)), np.transpose(C)], axis=1),  # 2 x F+3
             ],
             axis=0
         )
+        # delta_C = np.concatenate( # 列序优先版
+        #     [
+        #         np.concatenate([hat_C, np.ones((F, 1)), C], axis=1),  # F x F+3
+        #         np.concatenate([np.ones((1, F)), np.zeros((1, 3))], axis=1),  # 1 x F+3
+        #         np.concatenate([np.transpose(C), np.zeros((2, 3))], axis=1),  # 2 x F+3
+        #     ],
+        #     axis=0
+        # )
         inv_delta_C = np.linalg.inv(delta_C) # 求逆
         return inv_delta_C  # F+3 x F+3
 

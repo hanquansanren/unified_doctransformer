@@ -240,7 +240,7 @@ def train(args):
     losses = AverageMeter() # 用于计数和计算平均loss
     
     loss_instance.lambda_loss = 1 # 主约束
-    loss_instance.lambda_loss_a = 0.1 # 邻域约束
+    loss_instance.lambda_loss_a = 0.075 # 邻域约束
 
     ''' load data, dataloader'''
     FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
@@ -319,8 +319,8 @@ def train(args):
                 #                         batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
                 
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, label)
-                loss3 = 200*loss_polar_iou(triple_outputs, label)
-                loss4 = loss_centerness(triple_outputs, label)
+                loss3 = 250*loss_polar_iou(triple_outputs, label)
+                loss4 = 15*loss_centerness(triple_outputs, label)
 
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
                 # loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
@@ -333,7 +333,7 @@ def train(args):
                 # loss7 = loss_fun2(mask1*rectified_img7.to(args.device), mask1*w_im_p1.to(args.device))
                 # loss = loss3
                 # loss = loss3 + 0.5*(loss6 + loss7) + loss4
-                # loss = loss1 + (loss3 + loss4 + loss5)
+                # loss = loss3+loss4
                 loss = loss1+ loss3 + loss4
                 # print(time.time()-t1,'second')
                 
@@ -354,12 +354,12 @@ def train(args):
                 # loss_l1_list +=    0
                 # loss_local_list += 0
                 # loss3_list += 0
-                loss4_list += 0
+                # loss4_list += 0
                 loss5_list += 0
                 loss6_list += 0
                 loss7_list += 0
                 loss3_list += (loss3.item()*1)
-                # loss4_list += (loss4.item()*1)
+                loss4_list += (loss4.item()*1)
                 # loss5_list += (loss5.item()*1)
                 # loss6_list += (loss6.item()*0.5)
                 # loss7_list += (loss7.item()*0.5)
@@ -442,10 +442,10 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.00002,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0002,
                         help='Learning Rate')
 
-    parser.add_argument('--print-freq', '-p', default=2, type=int,
+    parser.add_argument('--print-freq', '-p', default=4, type=int,
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
 
@@ -454,7 +454,7 @@ if __name__ == '__main__':
                         help='the path of train images.')  # train image path
 
     # './dataset_for_debug'  './dataset'  './dataset_fast_train' './dataset/biglmdb' './dataset/onelmdb/'
-    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
+    parser.add_argument('--data_path_total', default='./dataset/biglmdb', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -462,7 +462,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=28,
                         help='Batch Size') # 8   
     
     parser.add_argument('--resume', default=None, type=str, 
@@ -478,7 +478,7 @@ if __name__ == '__main__':
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
     
     # ICDAR
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 14:42:26 @2021-02-03/144/2021-02-03@2022-09-20 14:42:26DDCP.pkl')
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-20/2022-09-20 16:40:40/15/2022-09-20 16:40:40DDCP.pkl')
     # big 
@@ -486,7 +486,7 @@ if __name__ == '__main__':
     # 5
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-26/2022-10-26 22:44:32 @2022-10-26/49/2022-10-26@2022-10-26 22:44:32DDCP.pkl')
     
-    parser.add_argument('--parallel', default='123', type=list,
+    parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
                         
     args = parser.parse_args()

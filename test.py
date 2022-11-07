@@ -76,7 +76,7 @@ def test(args):
             print("\nLoading model and optimizer from checkpoint '{}'\n".format(args.resume))
             if args.parallel is not None:
                 checkpoint = torch.load(args.resume, map_location=args.device) 
-                model.load_state_dict(checkpoint['model_state'])
+                model.load_state_dict(checkpoint['model_state'], strict=False)
                 # print(next(model.parameters()).device)
             else:
                 checkpoint = torch.load(args.resume, map_location=args.device)
@@ -143,10 +143,11 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/ICDAR2021/2021-02-03 16_15_55/143/2021-02-03 16_15_55flat_img_by_fiducial_points-fiducial1024_v1.pkl')  
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-22/2022-09-22 15:38:30 @2022-09-20/149/2022-09-20@2022-09-22 15:38:30DDCP.pkl')  
     # big total
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/89/2022-09-28 17:04:41DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-06/2022-11-06 18:09:41 @2021-02-03/146/2021-02-03@2022-11-06 18:09:41DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-06/2022-11-06 18:09:41 @2021-02-03/170/2021-02-03@2022-11-06 18:09:41DDCP.pkl')
     
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
-    parser.add_argument('--parallel', default='3', type=list,
+    parser.add_argument('--parallel', default='123', type=list,
                         help='choice the gpu id for parallel ')
 
     args = parser.parse_args()
