@@ -6,6 +6,7 @@ V9 means final polar-doc
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
+from utilmy.points import Polygon
 
 class Losses(object):
     def __init__(self, reduction='mean', args_gpu=0):
@@ -96,7 +97,22 @@ class Losses(object):
         loss = (l_max.sum(dim=[1,2])/ l_min.sum(dim=[1,2])).log()
         loss = loss.mean()
         # print(loss.shape)
-        return loss
+
+        print(input[:,:,0,0:31].shape())
+        left = Polygon(input[:,:,0,0:31])
+        right = Polygon(input[:,:,30,0:31])
+        top = Polygon(input[:,:,0:31,0])
+        bottom = Polygon(input[:,:,0:31,30]) 
+        left_gt = Polygon(target[:,:,0,0:31])
+        right_gt = Polygon(target[:,:,30,0:31])
+        top_gt = Polygon(target[:,:,0:31,0])
+        bottom_gt = Polygon(target[:,:,0:31,30])
+        l_loss = F.smooth_l1_loss(left.get_perimeter(), left_gt.get_perimeter(), reduction=reduction)/left_gt.get_perimeter()
+        r_loss = F.smooth_l1_loss(right.get_perimeter(), right_gt.get_perimeter(), reduction=reduction)/right_gt.get_perimeter()
+        t_loss = F.smooth_l1_loss(top.get_perimeter(), top_gt.get_perimeter(), reduction=reduction)/top_gt.get_perimeter()
+        b_loss = F.smooth_l1_loss(bottom.get_perimeter(), bottom_gt.get_perimeter(), reduction=reduction)/bottom_gt.get_perimeter()
+        print(loss, l_loss, r_loss, t_loss, b_loss)
+        return loss+ l_loss + r_loss + t_loss + b_loss
 
     def mask_calculator(self, lbl, single_line):
         '''
