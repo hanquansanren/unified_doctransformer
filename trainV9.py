@@ -235,7 +235,7 @@ def train(args):
     loss_instance = Losses(reduction='mean', args_gpu=args.device) # loss类的实例化
     loss_fun = loss_instance.loss_fn4_v5_r_4   # 调用其中一个loss function
     loss_polar_iou = loss_instance.polar_iou_loss
-    loss_centerness = loss_instance.centerness_loss
+    # loss_centerness = loss_instance.centerness_loss
     loss_fun2 = loss_instance.loss_fn_l1_loss #普通的mask L1 loss
     losses = AverageMeter() # 用于计数和计算平均loss
     
@@ -319,8 +319,8 @@ def train(args):
                 #                         batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
                 
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, label)
-                loss3 = 250*loss_polar_iou(triple_outputs, label)
-                loss4 = 15*loss_centerness(triple_outputs, label)
+                loss3 = 10*loss_polar_iou(triple_outputs, label)
+                # loss4 = 15*loss_centerness(triple_outputs, label)
 
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
                 # loss3 = loss_fun2(rectified_img3.to(args.device), ref_img3.to(args.device))
@@ -334,7 +334,7 @@ def train(args):
                 # loss = loss3
                 # loss = loss3 + 0.5*(loss6 + loss7) + loss4
                 # loss = loss3+loss4
-                loss = loss1+ loss3 + loss4
+                loss = loss1+ loss3
                 # print(time.time()-t1,'second')
                 
                 # '''vis for fourier dewarp'''
@@ -354,12 +354,12 @@ def train(args):
                 # loss_l1_list +=    0
                 # loss_local_list += 0
                 # loss3_list += 0
-                # loss4_list += 0
+                loss4_list += 0
                 loss5_list += 0
                 loss6_list += 0
                 loss7_list += 0
                 loss3_list += (loss3.item()*1)
-                loss4_list += (loss4.item()*1)
+                # loss4_list += (loss4.item()*1)
                 # loss5_list += (loss5.item()*1)
                 # loss6_list += (loss6.item()*0.5)
                 # loss7_list += (loss7.item()*0.5)
@@ -463,7 +463,7 @@ if __name__ == '__main__':
 
     
     parser.add_argument('--batch_size', nargs='?', type=int, default=28,
-                        help='Batch Size') # 8   
+                        help='Batch Size') # 28   
     
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
@@ -484,7 +484,7 @@ if __name__ == '__main__':
     # big 
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 5
-    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-10-26/2022-10-26 22:44:32 @2022-10-26/49/2022-10-26@2022-10-26 22:44:32DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-07/2022-11-07 15:39:14/30/2022-11-07 15:39:14DDCP.pkl')
     
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
