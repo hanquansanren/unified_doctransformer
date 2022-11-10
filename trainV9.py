@@ -145,7 +145,7 @@ def train(args):
     ''' load model '''
     from networkV9 import model_handlebar, DilatedResnet
     n_classes = 2
-    model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=3)
+    model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=5)
     model.float()
     # model_val = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)
     # model_val.float()
@@ -208,9 +208,9 @@ def train(args):
             if args.parallel is not None:
                 checkpoint = torch.load(args.resume, map_location=args.device) 
                 model.load_state_dict(checkpoint['model_state'], strict=False)
-                # optimizer.load_state_dict(checkpoint['optimizer_state'])
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = args.l_rate 
+                optimizer.load_state_dict(checkpoint['optimizer_state'])
+                # for param_group in optimizer.param_groups:
+                #     param_group["lr"] = args.l_rate 
                 # scheduler.load_state_dict(checkpoint['scheduler_state'])
                 # print(next(model.parameters()).device)
             else:
@@ -319,7 +319,7 @@ def train(args):
                 #                         batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
                 
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, label)
-                loss3 = 10*loss_polar_iou(triple_outputs, label)
+                loss3, loss4 = loss_polar_iou(triple_outputs, label)
                 # loss4 = 15*loss_centerness(triple_outputs, label)
 
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
@@ -334,11 +334,11 @@ def train(args):
                 # loss = loss3
                 # loss = loss3 + 0.5*(loss6 + loss7) + loss4
                 # loss = loss3+loss4
-                loss = loss1+ loss3
+                loss = loss1+ loss3 + loss4
                 # print(time.time()-t1,'second')
                 
                 # '''vis for fourier dewarp'''
-                if (global_step-1)%4==0:
+                if (global_step-1)%10==0:
                     location_mark_for_d1(d1,triple_outputs[0*args.batch_size:1*args.batch_size],1,label=lbl1)
                     location_mark_for_d1(d2,triple_outputs[1*args.batch_size:2*args.batch_size],2,label=lbl2)
 
@@ -354,12 +354,12 @@ def train(args):
                 # loss_l1_list +=    0
                 # loss_local_list += 0
                 # loss3_list += 0
-                loss4_list += 0
+                # loss4_list += 0
                 loss5_list += 0
                 loss6_list += 0
                 loss7_list += 0
                 loss3_list += (loss3.item()*1)
-                # loss4_list += (loss4.item()*1)
+                loss4_list += (loss4.item()*1)
                 # loss5_list += (loss5.item()*1)
                 # loss6_list += (loss6.item()*0.5)
                 # loss7_list += (loss7.item()*0.5)
@@ -442,10 +442,10 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimization')
 
-    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0002,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=0.0004,
                         help='Learning Rate')
 
-    parser.add_argument('--print-freq', '-p', default=4, type=int,
+    parser.add_argument('--print-freq', '-p', default=6, type=int,
                         metavar='N', help='print frequency (default: 10)')  # print frequency
 
 
@@ -484,7 +484,7 @@ if __name__ == '__main__':
     # big 
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 5
-    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-07/2022-11-07 15:39:14/30/2022-11-07 15:39:14DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 14:10:59/35/2022-11-10 14:10:59DDCP.pkl')
     
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')

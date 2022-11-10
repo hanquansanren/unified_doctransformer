@@ -301,6 +301,17 @@ class DilatedResnet(nn.Module):
 
 	def forward(self, images1, images2=None, w_im=None):
 		'''part 1'''
+		# input:d1,d2 (2b,3,992,992)
+		# 生成从0到992的线性值
+		x_range = torch.linspace(0, 991, images1.shape[-1], device=images1.device)
+		y_range = torch.linspace(0, 991, images1.shape[-2], device=images1.device)
+		x, y = torch.meshgrid(y_range, x_range, indexing='ij') # 生成二维坐标网格,'ij'表示列序优先
+		y = y.expand([images1.shape[0], 1, -1, -1]) # 扩充到和ins_feat相同维度
+		x = x.expand([images1.shape[0], 1, -1, -1])
+		coord_feat = torch.cat([x, y], 1) # 位置特征 (2b,2,992,992)
+		images1 = torch.cat([images1, coord_feat], 1) # concatnate一起作为下一个卷积的输入
+
+
 		resnet_head1 = self.resnet_head(images1) # 图示的第一层
 		resnet_down1 = self.resnet_down(resnet_head1) # 图示的中四层
 

@@ -144,10 +144,10 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-22/2022-09-22 15:38:30 @2022-09-20/149/2022-09-20@2022-09-22 15:38:30DDCP.pkl')  
     # big total
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-06/2022-11-06 18:09:41 @2021-02-03/146/2021-02-03@2022-11-06 18:09:41DDCP.pkl')
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-07/2022-11-07 15:39:14/70/2022-11-07 15:39:14DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-09/2022-11-09 19:23:07/112/2022-11-09 19:23:07DDCP.pkl')
     
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
-    parser.add_argument('--parallel', default='123', type=list,
+    parser.add_argument('--parallel', default='1', type=list,
                         help='choice the gpu id for parallel ')
 
     args = parser.parse_args()
