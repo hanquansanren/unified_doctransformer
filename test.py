@@ -12,7 +12,7 @@ from pathlib import Path
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
 
-from network import model_handlebar, DilatedResnet_for_test_single_image
+from networkV9 import model_handlebar, DilatedResnet
 
 # import utilsV3 as utils
 import utilsV4 as utils
@@ -41,7 +41,7 @@ def test(args):
 
     ''' load model '''
     n_classes = 2
-    model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet_for_test_single_image, BatchNorm='BN', in_channels=3)     #
+    model = model_handlebar(n_classes=n_classes, num_filter=32, architecture=DilatedResnet, BatchNorm='BN', in_channels=5)     #
     model.double()
 
     ''' load device '''
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-22/2022-09-22 15:38:30 @2022-09-20/149/2022-09-20@2022-09-22 15:38:30DDCP.pkl')  
     # big total
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-06/2022-11-06 18:09:41 @2021-02-03/146/2021-02-03@2022-11-06 18:09:41DDCP.pkl')
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-09/2022-11-09 19:23:07/112/2022-11-09 19:23:07DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 19:39:58 @2022-11-10/151/2022-11-10@2022-11-10 19:39:58DDCP.pkl')
     
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     parser.add_argument('--parallel', default='1', type=list,

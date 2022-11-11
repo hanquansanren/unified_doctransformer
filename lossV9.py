@@ -94,8 +94,8 @@ class Losses(object):
         l_min = torch.minimum(pred_dist, label_dist) # [20, 31, 31]
 
         piou = (l_min.sum(dim=[1,2])/ l_max.sum(dim=[1,2]))
-        loss = -piou.log()
-        loss = 3000*((1-piou)**2)*(-piou.log())
+        # loss = -piou.log()
+        loss = 50*3000*((1-piou)**2)*(-piou.log())
         # loss1 = (l_max.sum(dim=[1,2])/ l_min.sum(dim=[1,2])).log()
         
         
@@ -127,49 +127,82 @@ class Losses(object):
         return loss, lrtb_loss
         # return loss
 
-    def mask_calculator(self, lbl, single_line):
+    def local_polar_iou_loss(self, input, target, reduction='mean'):
         '''
-        lbl:(b,31,31)
-        single_line: 30
+        input  : (2b,2,31,31)
+        target : (2b,2,31,31)
         '''
-        batch_num = lbl.shape[0]
-        pt_edge_batch = torch.zeros((batch_num,15,4*single_line), requires_grad=True).cuda()
-        for batch in range(batch_num):
-            for c in range(15): # c is contour
-                pt_edge_batch[batch,c,0:(single_line-2*c+1)] = lbl[batch,c,c:(single_line+1)-c]
-                for num in range(1,single_line-2*c,1):
-                    pt_edge_batch[batch,c,single_line-2*c+num]= lbl[batch,num+c,single_line-c]
+        input1 = F.unfold(input, kernel_size=3, dilation=1, stride=1, padding=0)
+        target1 = F.unfold(target, kernel_size=3, dilation=1, stride=1, padding=0)
+
+        print(input1.shape) # [b, 18, 841]
+        vinput = torch.cat((input1[:,None,0:9,:],input1[:,None,9:18,:]),1)# [b, 2, 9, 841]
+        vtarget = torch.cat((target1[:,None,0:9,:],target1[:,None,9:18,:]),1)# [b, 2, 9, 841]
+        print(vinput.shape, vtarget.shape)
+        # label_center = vinput[:,:,4,:] # [b, 2, 841]
+        label_center = vtarget[:,:,4,:].unsqueeze(-2).repeat(1,1,9,1) # [b, 2, 9, 841]
+
+        pred_dist = torch.sqrt(torch.sum((vinput - label_center)**2, dim= 1)) # [b, 9, 841]
+        label_dist = torch.sqrt(torch.sum((vtarget - label_center)**2, dim= 1)) # [b, 9, 841]
+        # pred_dist[:,15,15] = pred_dist[:,15,15]+1e-06
+        # label_dist[:,15,15] = label_dist[:,15,15]+1e-06
+        # print(pred_dist.shape, label_dist.shape) # [20, 31, 31] [20, 31, 31]
+        
+        l_max = torch.maximum(pred_dist, label_dist) # [b, 9, 841]
+        l_min = torch.minimum(pred_dist, label_dist) # [b, 9, 841]
+
+        piou = (l_min.sum(dim=1)/ l_max.sum(dim=1)) # [b, 841]
+        loss = ((1-piou)**2)*(-piou.log()) # [b, 841]
+        loss = loss.sum(dim=1)
+        loss = loss.mean()
+
+        return loss
+        # return loss
+
+
+    # def mask_calculator(self, lbl, single_line):
+    #     '''
+    #     lbl:(b,31,31)
+    #     single_line: 30
+    #     '''
+    #     batch_num = lbl.shape[0]
+    #     pt_edge_batch = torch.zeros((batch_num,15,4*single_line), requires_grad=True).cuda()
+    #     for batch in range(batch_num):
+    #         for c in range(15): # c is contour
+    #             pt_edge_batch[batch,c,0:(single_line-2*c+1)] = lbl[batch,c,c:(single_line+1)-c]
+    #             for num in range(1,single_line-2*c,1):
+    #                 pt_edge_batch[batch,c,single_line-2*c+num]= lbl[batch,num+c,single_line-c]
                 
-                # a = lbl[batch,single_line-c,c:single_line+1-c]
-                pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c]
-                for num in range((single_line-1-2*c),0,-1):
-                    pt_edge_batch[batch,c,(3*(single_line-2*c)+num)]= lbl[batch,(single_line-num-c),c]
+    #             # a = lbl[batch,single_line-c,c:single_line+1-c]
+    #             pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c]
+    #             for num in range((single_line-1-2*c),0,-1):
+    #                 pt_edge_batch[batch,c,(3*(single_line-2*c)+num)]= lbl[batch,(single_line-num-c),c]
 
 
-        # pts = pt_edge_batch.int()
-        return pt_edge_batch # (b,15,120)
+    #     # pts = pt_edge_batch.int()
+    #     return pt_edge_batch # (b,15,120)
 
-    def mask_calculator_l(self, lbl, single_line):
-        '''
-        lbl:(b,31,31)
-        single_line: 30
-        '''
-        batch_num = lbl.shape[0]
-        pt_edge_batch = torch.zeros((batch_num,15,4*single_line)).cuda()
-        for batch in range(batch_num):
-            for c in range(15): # c is contour
-                pt_edge_batch[batch,c,0:(single_line-2*c+1)] = lbl[batch,c,c:(single_line+1)-c]
-                for num in range(1,single_line-2*c,1):
-                    pt_edge_batch[batch,c,single_line-2*c+num]= lbl[batch,num+c,single_line-c]
+    # def mask_calculator_l(self, lbl, single_line):
+    #     '''
+    #     lbl:(b,31,31)
+    #     single_line: 30
+    #     '''
+    #     batch_num = lbl.shape[0]
+    #     pt_edge_batch = torch.zeros((batch_num,15,4*single_line)).cuda()
+    #     for batch in range(batch_num):
+    #         for c in range(15): # c is contour
+    #             pt_edge_batch[batch,c,0:(single_line-2*c+1)] = lbl[batch,c,c:(single_line+1)-c]
+    #             for num in range(1,single_line-2*c,1):
+    #                 pt_edge_batch[batch,c,single_line-2*c+num]= lbl[batch,num+c,single_line-c]
                 
-                # a = lbl[batch,single_line-c,c:single_line+1-c]
-                pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c]
-                for num in range((single_line-1-2*c),0,-1):
-                    pt_edge_batch[batch,c,(3*(single_line-2*c)+num)]= lbl[batch,(single_line-num-c),c]
+    #             # a = lbl[batch,single_line-c,c:single_line+1-c]
+    #             pt_edge_batch[batch,c,(2*(single_line-2*c)):(3*(single_line-2*c)+1)] = lbl[batch,single_line-c,c:single_line+1-c]
+    #             for num in range((single_line-1-2*c),0,-1):
+    #                 pt_edge_batch[batch,c,(3*(single_line-2*c)+num)]= lbl[batch,(single_line-num-c),c]
 
 
-                # pts = pt_edge_batch.int()
-        return pt_edge_batch # (b,15,120)
+    #             # pts = pt_edge_batch.int()
+    #     return pt_edge_batch # (b,15,120)
 
 
     # def centerness_loss(self, input, target, reduction='mean'):

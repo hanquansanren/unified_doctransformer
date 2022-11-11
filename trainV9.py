@@ -235,6 +235,7 @@ def train(args):
     loss_instance = Losses(reduction='mean', args_gpu=args.device) # loss类的实例化
     loss_fun = loss_instance.loss_fn4_v5_r_4   # 调用其中一个loss function
     loss_polar_iou = loss_instance.polar_iou_loss
+    loss_fun5 = loss_instance.local_polar_iou_loss
     # loss_centerness = loss_instance.centerness_loss
     loss_fun2 = loss_instance.loss_fn_l1_loss #普通的mask L1 loss
     losses = AverageMeter() # 用于计数和计算平均loss
@@ -320,6 +321,7 @@ def train(args):
                 
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, label)
                 loss3, loss4 = loss_polar_iou(triple_outputs, label)
+                # loss5 = loss_fun5(triple_outputs, label)
                 # loss4 = 15*loss_centerness(triple_outputs, label)
 
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
@@ -333,8 +335,9 @@ def train(args):
                 # loss7 = loss_fun2(mask1*rectified_img7.to(args.device), mask1*w_im_p1.to(args.device))
                 # loss = loss3
                 # loss = loss3 + 0.5*(loss6 + loss7) + loss4
-                # loss = loss3+loss4
+
                 loss = loss1+ loss3 + loss4
+                # loss = loss1+ loss3 + loss4 + loss5
                 # print(time.time()-t1,'second')
                 
                 # '''vis for fourier dewarp'''
@@ -365,7 +368,7 @@ def train(args):
                 # loss7_list += (loss7.item()*0.5)
 
                 
-                if (global_step-1)%30==0:
+                if (global_step-1)%60==0:
                     # show_wc_tnsboard(global_step, writer, images[4*args.batch_size:5*args.batch_size], labels[:args.batch_size], triple_outputs[0:args.batch_size], 8,'Train d1 pts', 'no', 'no')
                     # show_wc_tnsboard(global_step, writer, images2, labels2, triple_outputs[args.batch_size:2*args.batch_size], 8,'Train d2 pts', 'no', 'no')
                     
@@ -484,7 +487,8 @@ if __name__ == '__main__':
     # big 
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 5
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 14:10:59/35/2022-11-10 14:10:59DDCP.pkl')
+    # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 14:10:59/35/2022-11-10 14:10:59DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 14:10:59/20/2022-11-10 14:10:59DDCP.pkl')
     
     parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
