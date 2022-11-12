@@ -321,7 +321,7 @@ def train(args):
                 
                 loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, label)
                 loss3, loss4 = loss_polar_iou(triple_outputs, label)
-                # loss5 = loss_fun5(triple_outputs, label)
+                loss5 = loss_fun5(triple_outputs, label)
                 # loss4 = 15*loss_centerness(triple_outputs, label)
 
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
@@ -336,12 +336,12 @@ def train(args):
                 # loss = loss3
                 # loss = loss3 + 0.5*(loss6 + loss7) + loss4
 
-                loss = loss1+ loss3 + loss4
-                # loss = loss1+ loss3 + loss4 + loss5
+                # loss = loss1+ loss3 + loss4
+                loss = loss1+ loss3 + loss4 + loss5
                 # print(time.time()-t1,'second')
                 
                 # '''vis for fourier dewarp'''
-                if (global_step-1)%10==0:
+                if (global_step-1)%12==0:
                     location_mark_for_d1(d1,triple_outputs[0*args.batch_size:1*args.batch_size],1,label=lbl1)
                     location_mark_for_d1(d2,triple_outputs[1*args.batch_size:2*args.batch_size],2,label=lbl2)
 
@@ -358,12 +358,12 @@ def train(args):
                 # loss_local_list += 0
                 # loss3_list += 0
                 # loss4_list += 0
-                loss5_list += 0
+                # loss5_list += 0
                 loss6_list += 0
                 loss7_list += 0
                 loss3_list += (loss3.item()*1)
                 loss4_list += (loss4.item()*1)
-                # loss5_list += (loss5.item()*1)
+                loss5_list += (loss5.item()*1)
                 # loss6_list += (loss6.item()*0.5)
                 # loss7_list += (loss7.item()*0.5)
 
@@ -488,6 +488,7 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-28/2022-09-28 17:04:41/80/2022-09-28 17:04:41DDCP.pkl')
     # 5
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 14:10:59/35/2022-11-10 14:10:59DDCP.pkl')
+    # 不戳的初始化起点
     parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 14:10:59/20/2022-11-10 14:10:59DDCP.pkl')
     
     parser.add_argument('--parallel', default='0123', type=list,

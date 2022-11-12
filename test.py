@@ -144,7 +144,7 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-22/2022-09-22 15:38:30 @2022-09-20/149/2022-09-20@2022-09-22 15:38:30DDCP.pkl')  
     # big total
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-06/2022-11-06 18:09:41 @2021-02-03/146/2021-02-03@2022-11-06 18:09:41DDCP.pkl')
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-10/2022-11-10 19:39:58 @2022-11-10/151/2022-11-10@2022-11-10 19:39:58DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-11/2022-11-11 20:27:43 @2022-11-10/143/2022-11-10@2022-11-11 20:27:43DDCP.pkl')
     
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
     parser.add_argument('--parallel', default='1', type=list,

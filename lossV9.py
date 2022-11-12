@@ -135,11 +135,10 @@ class Losses(object):
         input1 = F.unfold(input, kernel_size=3, dilation=1, stride=1, padding=0)
         target1 = F.unfold(target, kernel_size=3, dilation=1, stride=1, padding=0)
 
-        print(input1.shape) # [b, 18, 841]
+        # print(input1.shape) # [b, 18, 841]
         vinput = torch.cat((input1[:,None,0:9,:],input1[:,None,9:18,:]),1)# [b, 2, 9, 841]
         vtarget = torch.cat((target1[:,None,0:9,:],target1[:,None,9:18,:]),1)# [b, 2, 9, 841]
-        print(vinput.shape, vtarget.shape)
-        # label_center = vinput[:,:,4,:] # [b, 2, 841]
+        # print(vinput.shape, vtarget.shape)
         label_center = vtarget[:,:,4,:].unsqueeze(-2).repeat(1,1,9,1) # [b, 2, 9, 841]
 
         pred_dist = torch.sqrt(torch.sum((vinput - label_center)**2, dim= 1)) # [b, 9, 841]
