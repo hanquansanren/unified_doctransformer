@@ -127,7 +127,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', default=None, type=str, 
                         help='Path to previous saved model to restart from')    
 
-    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
                         help='Batch Size')#28
 
     parser.add_argument('--schema', type=str, default='test',
@@ -144,10 +144,10 @@ if __name__ == '__main__':
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-09-22/2022-09-22 15:38:30 @2022-09-20/149/2022-09-20@2022-09-22 15:38:30DDCP.pkl')  
     # big total
     # parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-06/2022-11-06 18:09:41 @2021-02-03/146/2021-02-03@2022-11-06 18:09:41DDCP.pkl')
-    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-11/2022-11-11 20:27:43 @2022-11-10/143/2022-11-10@2022-11-11 20:27:43DDCP.pkl')
+    parser.set_defaults(resume='/Public/FMP_temp/fmp23_weiguang_zhang/DDCP2/flat/2022-11-12/2022-11-12 13:12:47 @2022-11-10/234/2022-11-10@2022-11-12 13:12:47DDCP.pkl')
     
     parser.add_argument('--data_path_test', default=ROOT / 'dataset/testset/mytest0', type=str, help='the path of test images.')
-    parser.add_argument('--parallel', default='1', type=list,
+    parser.add_argument('--parallel', default='0123', type=list,
                         help='choice the gpu id for parallel ')
 
     args = parser.parse_args()

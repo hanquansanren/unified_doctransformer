@@ -1,7 +1,7 @@
 '''
 2022/10/16
 Weiguang Zhang
-V9 means final polar-doc
+V10 means final polar-doc + old dataset
 '''
 import os, sys
 import argparse
@@ -23,9 +23,9 @@ from torch.utils import data
 import random
 import torchvision
 from os.path import join as pjoin
-import utilsV4 as utils
-from utilsV4 import AverageMeter
-from dataset_lmdbV9 import my_unified_dataset
+import utilsV10 as utils
+from utilsV10 import AverageMeter
+from dataset_lmdbV10 import PerturbedDatastsForFiducialPoints_pickle_color_v2_v2
 from intermediate_dewarp_lossV8 import get_dewarped_intermediate_result
 
 def show_wc_tnsboard(global_step,writer,images,labels, pred, grid_samples,inp_tag, gt_tag, pred_tag):
@@ -244,18 +244,21 @@ def train(args):
     loss_instance.lambda_loss_a = 0.075 # 邻域约束
 
     ''' load data, dataloader'''
-    FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=my_unified_dataset, \
+    FlatImg = utils.FlatImg(args = args, out_path=out_path, date=date, date_time=date_time, _re_date=_re_date, dataset=PerturbedDatastsForFiducialPoints_pickle_color_v2_v2, \
                             data_path = args.data_path_train, data_path_test=args.data_path_test,\
                             model = model, model_validation=None,\
                             optimizer = optimizer, reslut_file=reslut_file) 
     # FlatImg.loadTestData()
-    lmdb_list = utils.get_total_lmdb(args.data_path_total)
-    trainloader_list = []
-    for k in lmdb_list:
-        full_data_path = pjoin(args.data_path_total, k)
-        trainloader_list.append(FlatImg.loadTrainData('train', full_data_path, is_DDP = args.is_DDP))
-    print(lmdb_list)
-    trainloader_len = len(trainloader_list[0][0]) # 这里有两个[0][0]是因为list中存的是(trainloader, train_sampler)
+    # lmdb_list = utils.get_total_lmdb(args.data_path_total)
+    # trainloader_list = []
+    # for k in lmdb_list:
+    #     full_data_path = pjoin(args.data_path_total, k)
+    #     trainloader_list.append(FlatImg.loadTrainData('train', full_data_path, is_DDP = args.is_DDP))
+    # print(lmdb_list)
+    # trainloader_len = len(trainloader_list[0][0]) # 这里有两个[0][0]是因为list中存的是(trainloader, train_sampler)
+    trainloader = FlatImg.loadTrainData_old('train', args.data_path_total, is_DDP = args.is_DDP)
+    trainloader_len = len(trainloader)
+    
     print("Total number of mini-batch in each epoch: ", trainloader_len)
     
     '''load tensorboard'''
@@ -271,57 +274,28 @@ def train(args):
             loss_l1_list, loss_local_list, loss3_list, loss4_list, loss5_list, loss6_list, loss7_list = 0,0,0,0,0,0,0
             
             begin_train = time.time() #从这里正式开始训练当前epoch
-            if args.is_DDP:
-                trainloader_list[0][1].set_epoch(epoch)
-                print("shuffle successfully")
+            # if args.is_DDP:
+            #     trainloader_list[0][1].set_epoch(epoch)
+            #     print("shuffle successfully")
             model.train()
-            for i, (d1, lbl1, d2, lbl2) in enumerate(trainloader_list[epoch%1][0]):           
+            # for i, (d1, lbl1, d2, lbl2) in enumerate(trainloader_list[epoch%1][0]):
+            for i, (d1, lbl1) in enumerate(trainloader):            
                 d1 = d1.cuda() # (b,3,992,992)
-                d2 = d2.cuda() # (b,3,992,992)
+                # d2 = d2.cuda() # (b,3,992,992)
                 lbl1 = lbl1.cuda() # (b,2,31,31)
-                lbl2 = lbl2.cuda() # (b,2,31,31)
-                label = torch.cat((lbl1,lbl2),dim=0)
+                # lbl2 = lbl2.cuda() # (b,2,31,31)
+                # label = torch.cat((lbl1,lbl2),dim=0)
                 optimizer.zero_grad()
                 global_step+=1
                 # t1=time.time()
                 
-                # perturbed_wi_list = tps_for_loss.module.perturb_warp(args.batch_size) 
-                # perturbed_wi_list: 2 elements, each element is [6, 2, 11, 11]
-                # w_im_p1 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                # w_im_p2 = F.grid_sample(images[0*args.batch_size:1*args.batch_size], F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                # w_im_p1 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[0], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                # w_im_p2 = F.grid_sample(w1, F.interpolate(perturbed_wi_list[1], 992, mode='bilinear', align_corners=True).permute(0, 2, 3, 1).float(), align_corners=True)
-                # '''vis for p1 and p2'''
-                # if (global_step-1)%2==0:
-                #     w1_show = vis_single(w1, './intermedia_tps_vis/mark_origin_wild.png')
-                #     w1_p1 = vis_single(w_im_p1, './intermedia_tps_vis/mark_origin_p1.png')
-                #     w1_p2 = vis_single(w_im_p2, './intermedia_tps_vis/mark_origin_p2.png')
+                # triple_outputs = model(torch.cat((d1,d2),dim=0)) # input:d1,d2 (2b,3,992,992) # output: [2b, 2, 31,31]
+                triple_outputs = model(d1)
 
-                # images = torch.cat((w_im_p1,w_im_p2,images),dim=0) # images: [4*b, 3, 992, 992] = p1+p2+w1+di
-                # triple_outputs = model(images[0:3*args.batch_size]) # input:d1,d2,w1
-                # print(torch.cat((d1,d2),dim=0).shape)
-                triple_outputs = model(torch.cat((d1,d2),dim=0)) # input:d1,d2 (2b,3,992,992) # output: [2b, 2, 31,31]
-                # triple_outputs = triple_outputs.reshape(-1,8,8,2)
-                # triple_outputs = triple_outputs.permute(0,3,1,2) # [3b, 2, 8, 8]
-                # (3*b, 2, 8, 8) 预测的的控制点坐标信息，先w(x),后h(y), 列序优先，范围是（992,992）
-                # outputs1, D1_pred: triple_outputs[0:args.batch_size]
-                # outputs2, D2_pred: triple_outputs[args.batch_size:2*args.batch_size]
-                # output3, wild_pred: triple_outputs[2*args.batch_size:3*args.batch_size]           
                 
-                # tps loss part
-                # mask2 = mask_calculator(triple_outputs[args.batch_size:2*args.batch_size].detach().cpu().numpy(), 7) # out: [b, 3, 992, 992]
-                # mask1 = mask_calculator(triple_outputs[0:args.batch_size].detach().cpu().numpy(), 7)
-                # rectified_img3, ref_img3 = tps_for_loss(w1, \
-                #                         batch_ref=di, \
-                #                         batch_src_pt = triple_outputs[2*args.batch_size:3*args.batch_size])
-                # rectified_img6 = tps_for_loss(w_im_p1, batch_src_pt = triple_outputs[0:args.batch_size], \
-                #                         batch_trg_pt=triple_outputs[args.batch_size:2*args.batch_size],trg_mask = mask2.float())
-                # rectified_img7 = tps_for_loss(w_im_p2, batch_src_pt = triple_outputs[args.batch_size:2*args.batch_size], \
-                #                         batch_trg_pt=triple_outputs[0:args.batch_size], trg_mask = mask1.float())
-                
-                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, label)
-                loss3, loss4 = loss_polar_iou(triple_outputs, label)
-                loss5 = loss_fun5(triple_outputs, label)
+                loss1_l1, loss1_local, loss1_edge, loss1_rectangles = loss_fun(triple_outputs, lbl1)
+                loss3, loss4 = loss_polar_iou(triple_outputs, lbl1)
+                loss5 = loss_fun5(triple_outputs, lbl1)
                 # loss4 = 15*loss_centerness(triple_outputs, label)
 
                 loss1 = loss1_l1 + (loss1_local)*loss_instance.lambda_loss_a
@@ -343,7 +317,7 @@ def train(args):
                 # '''vis for fourier dewarp'''
                 if (global_step-1)%12==0:
                     location_mark_for_d1(d1,triple_outputs[0*args.batch_size:1*args.batch_size],1,label=lbl1)
-                    location_mark_for_d1(d2,triple_outputs[1*args.batch_size:2*args.batch_size],2,label=lbl2)
+                    # location_mark_for_d1(d2,triple_outputs[1*args.batch_size:2*args.batch_size],2,label=lbl2)
 
 
 
@@ -378,7 +352,7 @@ def train(args):
                     
                     # show_wc_tnsboard(global_step, writer, w1, None, triple_outputs[2*args.batch_size:3*args.batch_size], 5,'Train wild pts', 'no', 'no')
                     show_wc_tnsboard(global_step, writer, d1, None, triple_outputs[0*args.batch_size:1*args.batch_size], 5,'Train d1 pts', 'no', 'no')
-                    show_wc_tnsboard(global_step, writer, d2, None, triple_outputs[1*args.batch_size:2*args.batch_size], 5,'Train d2 pts', 'no', 'no')
+                    # show_wc_tnsboard(global_step, writer, d2, None, triple_outputs[1*args.batch_size:2*args.batch_size], 5,'Train d2 pts', 'no', 'no')
                     
                     writer.add_scalar('L1 Loss/train', loss_l1_list/(i+1), global_step)
                     writer.add_scalar('local Loss/train', loss_local_list/(i+1), global_step)
@@ -456,8 +430,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_path_train', default='./dataset/warp1.lmdb', type=str,
                         help='the path of train images.')  # train image path
 
-    # './dataset_for_debug'  './dataset'  './dataset_fast_train' './dataset/biglmdb' './dataset/onelmdb/'
-    parser.add_argument('--data_path_total', default='./dataset_fast_train', type=str,
+    #  './dataset/old_dataset'  './dataset_fast_train' './dataset/biglmdb' './dataset/onelmdb/'
+    parser.add_argument('--data_path_total', default='./dataset/old_dataset', type=str,
                         help='the path of train images.')
 
     parser.add_argument('--data_path_test', default='./dataset/testset/mytest0', type=str, help='the path of test images.')
@@ -465,7 +439,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', default='./flat/', type=str, help='the path is used to  save output --img or result.') 
 
     
-    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=28,
                         help='Batch Size') # 28   
     
     parser.add_argument('--resume', default=None, type=str, 
