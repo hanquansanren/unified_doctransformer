@@ -190,15 +190,40 @@ class SaveFlatImage(object):
                                                                                          self.date + self.date_time,
                                                                                          str(epoch))
 
-        sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
-        perturbed_img_mark = self.location_mark(original_img.copy(), sshape*output_img_shape[::-1], (0, 0, 255))
+        # sshape = fiducial_points[::self.fiducial_point_gaps[self.row_gap], ::self.fiducial_point_gaps[self.col_gap], :]
+        # perturbed_img_mark = self.location_mark(original_img.copy(), sshape*output_img_shape[::-1], (0, 0, 255))
+
+        # for dissertation
+        d_sshape = fiducial_points[::10, ::10, :]
+        perturbed_img_mark = self.location_mark(original_img.copy(), d_sshape*output_img_shape[::-1], (0, 0, 255))
+
+        # import matplotlib.pyplot as plt
+        # r = np.arange(0, 2, 0.01)
+        # # theta = 2 * np.pi * r
+
+        # fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}, figsize = (40,54))
+        # # ax.plot(theta, r)
+        # # ax.imshow(perturbed_img_mark[:,:,::-1],extent=[0, 992, 0, 992])
+        # ax.set_rmax(500)
+        # ax.spines.set_linewidth(2)
+        # # ax.set_rticks([0.5, 1, 1.5, 2])  # Less radial ticks
+        # # ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
+        # ax.grid(True)
+
+        # # ax.set_title("A line plot on a polar axis", va='bottom')
+        
+
 
         if scheme == 'test':
             i_path += '/test'
         if not os.path.exists(i_path):
             os.makedirs(i_path,exist_ok=True)
+        
+        # plt.savefig(i_path + '/polar' + im_name, transparent=True)
 
         im_name = im_name.replace('gw', 'png')
+        
+        # cv2.imwrite(i_path + '/mark_' + im_name, original_img)
         cv2.imwrite(i_path + '/mark_' + im_name, perturbed_img_mark)
         cv2.imwrite(i_path + '/' + im_name, flatten_img)
 
@@ -271,11 +296,11 @@ class SaveFlatImage(object):
         im_name = im_name.replace('gw', 'png')
         cv2.imwrite(i_path + '/' + im_name, img_figure)
 
-    def location_mark(self, img, location, color=(0, 0, 255)):
+    def location_mark(self, img, location, color=(51, 51, 205)):
         stepSize = 0
         for l in location.astype(np.int64).reshape(-1, 2):
             cv2.circle(img,
-                       (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 3, color, -1)
+                       (l[0] + math.ceil(stepSize / 2), l[1] + math.ceil(stepSize / 2)), 27, color, -1)
         return img
 
 class AverageMeter(object):
